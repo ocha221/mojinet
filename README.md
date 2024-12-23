@@ -13,6 +13,7 @@ built on top of the sample script provided to fix JIS mapping, add batched proce
 ```python3 grid_to_singly.py```
 splices the grid(s) into single images. It creates and manages the following filesystem structure:
 
+```
 Root/
 ├── ETL_folders/
 └── Classes/
@@ -20,7 +21,7 @@ Root/
         ├── character_001.png
         ├── character_002.png
         └── character_003.png
-
+```
 
 
 
