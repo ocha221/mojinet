@@ -25,3 +25,5 @@ Root/
 
 
 
+## Notes
+ETL1/6/7 all use half-width katakana sometimes. On ETL6, it maps to full-width katakana. However, on ETL7 it maps to hiragana, so ETL6 only requires you normalise after converting to unicode, but ETL7 also needs to be offset to hiragana.
