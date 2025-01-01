@@ -131,7 +131,7 @@ class ETL167_Record(ETLn_Record, JISMappingMixin):  # * done
         return chr(unicode_value)
 
 
-class ETL2_Record(ETLn_Record):  # ? probably done? co59 should just work
+class ETL2_Record(ETLn_Record):  # * by my testing works, co59 should just work, if it bugs out check euc_co59.dat maybe?
     def __init__(self):
         self.octets_per_record = 2745
         self.fields = [
@@ -161,55 +161,23 @@ class ETL2_Record(ETLn_Record):  # ? probably done? co59 should just work
         return self.co59_to_utf8(self.record["CO-59 Code"])
 
 
-class ETL345_Record(
-    ETLn_Record, JISMappingMixin
-):  # ? uses JIS x 0201, same as ETL167
+class ETL345_Record(ETLn_Record, JISMappingMixin):  # * works!
     def __init__(self):
         self.octets_per_record = 2952
         self.fields = [
-            "Serial Data Number",
-            "Serial Sheet Number",
-            "JIS Code",
-            "EBCDIC Code",
-            "4 Character Code",
-            "Evaluation of Individual Character Image",
-            "Evaluation of Character Group",
-            "Sample Position Y on Sheet",
-            "Sample Position X on Sheet",
-            "Male-Female Code",
-            "Age of Writer",
-            "Industry Classification Code",
-            "Occupation Classification Code",
-            "Sheet Gatherring Date",
-            "Scanning Date",
-            "Number of X-Axis Sampling Points",
-            "Number of Y-Axis Sampling Points",
-            "Number of Levels of Pixel",
-            "Magnification of Scanning Lenz",
-            "Serial Data Number (old)",
-            "Image Data",
+            "Serial Data Number", "Serial Sheet Number", "JIS Code", "EBCDIC Code", "4 Character Code",
+            "Evaluation of Individual Character Image", "Evaluation of Character Group",
+            "Sample Position Y on Sheet", "Sample Position X on Sheet",
+            "Male-Female Code", "Age of Writer", "Industry Classification Code", "Occupation Classification Code",
+            "Sheet Gatherring Date", "Scanning Date", "Number of X-Axis Sampling Points",
+            "Number of Y-Axis Sampling Points", "Number of Levels of Pixel",
+            "Magnification of Scanning Lenz", "Serial Data Number (old)", "Image Data"        
         ]
-
-        self.bitstring = (
-            "uint:36,"  
-            "uint:36,"  
-            "hex:8,"  
-            "pad:28,"  
-            "hex:8,"  
-            "pad:28,"  
-            "bits:24,"  
-            "bits:12,"  
-            "14*uint:36,"  
-            "pad:1008,"  
-            "bytes:2736"  
-        )
-
+        self.bitstring = 'uint:36,uint:36,hex:8,pad:28,hex:8,pad:28,bits:24,pad:12,15*uint:36,pad:1008,bytes:2736'
         self.converter = {
-            "4 Character Code": lambda x: "".join([T56(b.uint) for b in x.cut(6)]),
-            "Image Data": lambda x: Image.eval(
-                Image.frombytes("F", (72, 76), x, "bit", 4).convert("L"),
-                lambda x: x * 16,
-            ),
+            '4 Character Code': lambda x: ''.join([ T56(b.uint) for b in x.cut(6) ]),
+            'Image Data': lambda x: Image.eval(Image.frombytes('F', (72,76), x, 'bit', 4).convert('L'),
+            lambda x: x * 16)
         }
 
     def get_char(self):
@@ -222,8 +190,20 @@ class ETL345_Record(
 
         unicode_value = self.get_mapping().get(jis_code)
         if unicode_value is None:
+            logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
             return None
-        return chr(unicode_value)
+
+        char = chr(unicode_value)
+        
+        #? Handle special character conversions based on T56
+        if self.record['4 Character Code'][0] == 'H':
+            char = jaconv.kata2hira(jaconv.han2zen(char))
+            char = char.replace('ぃ', 'ゐ').replace('ぇ', 'ゑ')
+        elif self.record['4 Character Code'][0] == 'K':
+            char = jaconv.han2zen(char)
+            char = char.replace('ィ', 'ヰ').replace('ェ', 'ヱ')
+
+        return char
 
 
 class ETL8G_Record(ETLn_Record):
@@ -372,7 +352,7 @@ def unpack(filename, etln_record):
             #       print(f"Record: {record}")
             try:
                 char = etln_record.get_char()
-                print(f"gotten char: {char}")
+             #   print(f"gotten char: {char}")
                 logging.debug(f"Position {f.pos}: Got character {char}")
             except Exception as e:
                 logging.error(f"\nPosition {f.pos}: Failed to decode - {e}\n")
