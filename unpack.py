@@ -13,48 +13,49 @@ import unicodedata
 import time
 
 
- #* JIS x 0201 mapped files contain half-width katakana (from old terminal intefaces). 
-    #* normalising through NFKC will convert half-width katakana to full-width
-    #* then we subtract the offset (from UTF docs) to convert to hiragana
-    #* we dont care about predicting half-width katakana so this should be fine
-    
+# * JIS x 0201 mapped files contain half-width katakana (from old terminal intefaces).
+# * normalising through NFKC will convert half-width katakana to full-width
+# * then we subtract the offset (from UTF docs) to convert to hiragana
+# * we dont care about predicting half-width katakana so this should be fine
 
-def jis_to_hiragana(text): #! mainly obsolete, you might be able to just hardcode this into ETL7 
+
+def jis_to_hiragana(
+    text,
+):  #! mainly obsolete, you might be able to just hardcode this into ETL7
     if not text:
         return None
-    is_halfwidth = (0xFF61 <= ord(text) <= 0xFF9F)
-    
+    is_halfwidth = 0xFF61 <= ord(text) <= 0xFF9F
+
     if is_halfwidth:
-        x = unicodedata.normalize('NFKC', text).replace('ヴ', 'う゛')
+        x = unicodedata.normalize("NFKC", text).replace("ヴ", "う゛")
         if 0x30A1 <= ord(x) <= 0x30F3:
             return chr(ord(x) - 0x60)  # Convert to hiragana
-    
+
     return text
-   
-   
+
 
 def load_jis_map(*filenames, format):
     jis_to_unicode = {}
-    
+
     for filename in filenames:
         with open(filename, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
                     parts = line.split("\t")
-                    
-                    if format == '201':
+
+                    if format == "201":
                         if len(parts) >= 2:
                             jis_code = int(parts[0].replace("0x", ""), 16)
                             unicode_value = int(parts[1].replace("0x", ""), 16)
                             jis_to_unicode[jis_code] = unicode_value
-                    
-                    elif format == '208':
+
+                    elif format == "208":
                         if len(parts) >= 3:
                             jis_code = int(parts[1].replace("0x", ""), 16)
                             unicode_value = int(parts[2].replace("0x", ""), 16)
                             jis_to_unicode[jis_code] = unicode_value
-    
+
     return jis_to_unicode
 
 
@@ -84,19 +85,23 @@ class JISMappingMixin:  # ?
     _jis_mapping_208 = None
 
     @classmethod
-    def set_mapping(cls, mapping_201, mapping_208 ):
+    def set_mapping(cls, mapping_201, mapping_208):
         cls._jis_mapping_201 = mapping_201
         cls._jis_mapping_208 = mapping_208
 
     @classmethod
-    def get_mapping(cls, mapping_type='201'):
-        if mapping_type == '201':
+    def get_mapping(cls, mapping_type="201"):
+        if mapping_type == "201":
             if cls._jis_mapping_201 is None:
-                raise RuntimeError("JIS0201 mapping not initialized. Call set_mapping first.")
+                raise RuntimeError(
+                    "JIS0201 mapping not initialized. Call set_mapping first."
+                )
             return cls._jis_mapping_201
-        elif mapping_type == '208':
+        elif mapping_type == "208":
             if cls._jis_mapping_208 is None:
-                raise RuntimeError("JIS0208 mapping not initialized. Call set_mapping first.")
+                raise RuntimeError(
+                    "JIS0208 mapping not initialized. Call set_mapping first."
+                )
             return cls._jis_mapping_208
         raise ValueError("Invalid mapping type. Use '201' or '208'")
 
@@ -155,7 +160,7 @@ class ETL167_Record(ETLn_Record, JISMappingMixin):  # * For ETL1 and ETL6
         }
 
     def get_char(self):
-        """get & convert JIS code to Unicode character - normalizes to full-width katakana only""" #? explained in readme
+        """get & convert JIS code to Unicode character - normalizes to full-width katakana only"""  # ? explained in readme
         jis_code = self.record["JIS Code"]
         if isinstance(jis_code, str):
             jis_code = int(jis_code.replace("0x", ""), 16)
@@ -164,20 +169,21 @@ class ETL167_Record(ETLn_Record, JISMappingMixin):  # * For ETL1 and ETL6
             return chr(0x0000)
 
         unicode_value = None
-        unicode_value = self.get_mapping('201').get(jis_code)
-        
+        unicode_value = self.get_mapping("201").get(jis_code)
+
         if unicode_value is None:
             logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
             return None
-            
+
         char = chr(unicode_value)
-        #* Only normalize to full-width if half-width
+        # * Only normalize to full-width if half-width
         if 0xFF61 <= ord(char) <= 0xFF9F:
-            return unicodedata.normalize('NFKC', char).replace('ヴ', 'ウ゛')
-        
+            return unicodedata.normalize("NFKC", char).replace("ヴ", "ウ゛")
+
         return char
 
-class ETL7_Record(ETL167_Record):  #? check readme
+
+class ETL7_Record(ETL167_Record):  # ? check readme
     def get_char(self):
         """get & convert JIS code to Unicode character - normalizes and converts to hiragana"""
         jis_code = self.record["JIS Code"]
@@ -188,17 +194,19 @@ class ETL7_Record(ETL167_Record):  #? check readme
             return chr(0x0000)
 
         unicode_value = None
-        unicode_value = self.get_mapping('201').get(jis_code)
-        
+        unicode_value = self.get_mapping("201").get(jis_code)
+
         if unicode_value is None:
             logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
             return None
-            
+
         char = chr(unicode_value)
         return jis_to_hiragana(char)
 
 
-class ETL2_Record(ETLn_Record):  # * by my testing works, co59 should just work, if it bugs out check euc_co59.dat maybe?
+class ETL2_Record(
+    ETLn_Record
+):  # * by my testing works, co59 should just work, if it bugs out check euc_co59.dat maybe?
     def __init__(self):
         self.octets_per_record = 2745
         self.fields = [
@@ -232,19 +240,35 @@ class ETL345_Record(ETLn_Record, JISMappingMixin):  # * works!
     def __init__(self):
         self.octets_per_record = 2952
         self.fields = [
-            "Serial Data Number", "Serial Sheet Number", "JIS Code", "EBCDIC Code", "4 Character Code",
-            "Evaluation of Individual Character Image", "Evaluation of Character Group",
-            "Sample Position Y on Sheet", "Sample Position X on Sheet",
-            "Male-Female Code", "Age of Writer", "Industry Classification Code", "Occupation Classification Code",
-            "Sheet Gatherring Date", "Scanning Date", "Number of X-Axis Sampling Points",
-            "Number of Y-Axis Sampling Points", "Number of Levels of Pixel",
-            "Magnification of Scanning Lenz", "Serial Data Number (old)", "Image Data"        
+            "Serial Data Number",
+            "Serial Sheet Number",
+            "JIS Code",
+            "EBCDIC Code",
+            "4 Character Code",
+            "Evaluation of Individual Character Image",
+            "Evaluation of Character Group",
+            "Sample Position Y on Sheet",
+            "Sample Position X on Sheet",
+            "Male-Female Code",
+            "Age of Writer",
+            "Industry Classification Code",
+            "Occupation Classification Code",
+            "Sheet Gatherring Date",
+            "Scanning Date",
+            "Number of X-Axis Sampling Points",
+            "Number of Y-Axis Sampling Points",
+            "Number of Levels of Pixel",
+            "Magnification of Scanning Lenz",
+            "Serial Data Number (old)",
+            "Image Data",
         ]
-        self.bitstring = 'uint:36,uint:36,hex:8,pad:28,hex:8,pad:28,bits:24,pad:12,15*uint:36,pad:1008,bytes:2736'
+        self.bitstring = "uint:36,uint:36,hex:8,pad:28,hex:8,pad:28,bits:24,pad:12,15*uint:36,pad:1008,bytes:2736"
         self.converter = {
-            '4 Character Code': lambda x: ''.join([ T56(b.uint) for b in x.cut(6) ]),
-            'Image Data': lambda x: Image.eval(Image.frombytes('F', (72,76), x, 'bit', 4).convert('L'),
-            lambda x: x * 16)
+            "4 Character Code": lambda x: "".join([T56(b.uint) for b in x.cut(6)]),
+            "Image Data": lambda x: Image.eval(
+                Image.frombytes("F", (72, 76), x, "bit", 4).convert("L"),
+                lambda x: x * 16,
+            ),
         }
 
     def get_char(self):
@@ -256,26 +280,26 @@ class ETL345_Record(ETLn_Record, JISMappingMixin):  # * works!
             return chr(0x0000)
 
         unicode_value = None
-        unicode_value = self.get_mapping('201').get(jis_code)
+        unicode_value = self.get_mapping("201").get(jis_code)
 
         if unicode_value is None:
             logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
             return None
 
         char = chr(unicode_value)
-        
-        #? Handle special character conversions based on T56
-        if self.record['4 Character Code'][0] == 'H':
+
+        # ? Handle special character conversions based on T56
+        if self.record["4 Character Code"][0] == "H":
             char = jaconv.kata2hira(jaconv.han2zen(char))
-            char = char.replace('ぃ', 'ゐ').replace('ぇ', 'ゑ')
-        elif self.record['4 Character Code'][0] == 'K':
+            char = char.replace("ぃ", "ゐ").replace("ぇ", "ゑ")
+        elif self.record["4 Character Code"][0] == "K":
             char = jaconv.han2zen(char)
-            char = char.replace('ィ', 'ヰ').replace('ェ', 'ヱ')
+            char = char.replace("ィ", "ヰ").replace("ェ", "ヱ")
 
         return jis_to_hiragana(char)
 
 
-class ETL8G_Record(ETLn_Record, JISMappingMixin): #* workey :)
+class ETL8G_Record(ETLn_Record, JISMappingMixin):  # * workey :)
     def __init__(self):
         self.octets_per_record = 8199
         self.fields = [
@@ -313,15 +337,16 @@ class ETL8G_Record(ETLn_Record, JISMappingMixin): #* workey :)
             return chr(0x0000)
 
         unicode_value = None
-        unicode_value = self.get_mapping('208').get(jis_code)
+        unicode_value = self.get_mapping("208").get(jis_code)
         if unicode_value is None:
             logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
             return None
-            
+
         char = chr(unicode_value)
         return char
 
-class ETL8B_Record(ETLn_Record): #* donee
+
+class ETL8B_Record(ETLn_Record):  # * donee
     def __init__(self):
         self.octets_per_record = 512
         self.fields = [
@@ -345,17 +370,16 @@ class ETL8B_Record(ETLn_Record): #* donee
             return chr(0x0000)
 
         unicode_value = None
-        unicode_value = self.get_mapping('208').get(jis_code)
+        unicode_value = self.get_mapping("208").get(jis_code)
         if unicode_value is None:
             logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
             return None
-            
+
         char = chr(unicode_value)
         return char
 
 
-
-class ETL9G_Record(ETLn_Record): #* donee
+class ETL9G_Record(ETLn_Record):  # * donee
     def __init__(self):
         self.octets_per_record = 8199
         self.fields = [
@@ -391,7 +415,7 @@ class ETL9G_Record(ETLn_Record): #* donee
         return char
 
 
-class ETL9B_Record(ETLn_Record): #* works
+class ETL9B_Record(ETLn_Record):  # * works
     def __init__(self):
         self.octets_per_record = 576
         self.fields = [
@@ -422,21 +446,21 @@ def unpack(filename, etln_record):
         base = Path(filename).name
         folder = Path(filename).parent
         temp_files = []
-    
+
         f = bitstring.ConstBitStream(filename=filename)
-    
+
         if re.match(r"ETL[89]B_Record", etln_record.__class__.__name__):
             f.bytepos = etln_record.octets_per_record
-    
+
         chars = []
         images = []
         records = []
-    
+
         rows, cols = 40, 50
         rows_by_cols = rows * cols
-    
+
         c = 0
-    
+
         while f.pos < f.length:
             record = etln_record.read(f)
             try:
@@ -446,46 +470,48 @@ def unpack(filename, etln_record):
                 logging.error(f"\nPosition {f.pos}: Failed to decode - {e}\n")
                 char = "__null__"
             img = etln_record.get_image()
-    
+
             chars.append(char)
             images.append(img)
             records.append(record)
-    
+
             if len(chars) % rows_by_cols == 0 or f.pos >= f.length:
                 txt = "\n".join(
                     ["".join(chars[j * cols : (j + 1) * cols]) for j in range(rows)]
                 )
                 txtfn = folder / f"{base}_{c:02d}.txt"
                 temp_files.append(txtfn)
-    
+
                 with open(txtfn, "w", encoding="utf-8") as txtf:
                     txtf.write(txt)
-    
+
                 w, h = images[0].width, images[0].height
                 tiled = Image.new(images[0].mode, (w * cols, h * rows))
-    
+
                 for ij, image in enumerate(images):
                     i, j = divmod(ij, cols)
-                    tiled.paste(image, (w * j, h * i)) #* old commit messed this up oopsie
-    
+                    tiled.paste(
+                        image, (w * j, h * i)
+                    )  # * old commit messed this up oopsie
+
                 tiledfn = folder / f"{base}_{c:02d}.png"
                 temp_files.append(tiledfn)
                 tiled.save(tiledfn)
-    
+
                 chars.clear()
                 images.clear()
                 c += 1
-    
+
         csvfn = folder / f"{base}.csv"
         temp_files.append(csvfn)
-    
-        with open(csvfn, "w", newline='') as rf:
+
+        with open(csvfn, "w", newline="") as rf:
             writer = csv.writer(rf)
             writer.writerow(etln_record.fields[:-1])
             writer.writerows([list(ir.values())[:-1] for ir in records])
-    
+
         return True, None
-    
+
     except Exception as e:
         logging.error(f"Error processing file {filename}: {e}")
         logging.error(f"Record: {etln_record.read(f)}")
@@ -497,17 +523,26 @@ def unpack(filename, etln_record):
                 pass
         return False, str(e)
 
+
 def process_etl_file(args):
     if isinstance(args, tuple):
-        file_path, mapping_path_201, mapping_path_208,debug_mode = args
+        file_path, mapping_path_201, mapping_path_208, debug_mode = args
         if debug_mode:
             worker_id = multiprocessing.current_process().name
-            return (Path(file_path).name, True, f"Worker {worker_id} would process this file")
+            return (
+                Path(file_path).name,
+                True,
+                f"Worker {worker_id} would process this file",
+            )
     else:
-        file_path,debug_mode = args
+        file_path, debug_mode = args
         if debug_mode:
             worker_id = multiprocessing.current_process().name
-            return (Path(file_path).name, True, f"Worker {worker_id} would process this file")
+            return (
+                Path(file_path).name,
+                True,
+                f"Worker {worker_id} would process this file",
+            )
         mapping_path_201 = "/Users/chai/mojinet/utils/JIS0201.TXT"
         mapping_path_208 = "/Users/chai/mojinet/utils/JIS0208.TXT"
 
@@ -544,86 +579,110 @@ def process_etl_file(args):
         return (base, False, "Unknown ETL format")
 
     if needs_mapping:
-        mapping_201 = load_jis_map(mapping_path_201, format='201')
-        mapping_208 = load_jis_map(mapping_path_208, format='208')
+        mapping_201 = load_jis_map(mapping_path_201, format="201")
+        mapping_208 = load_jis_map(mapping_path_208, format="208")
         JISMappingMixin.set_mapping(mapping_201, mapping_208)
 
     success, error = unpack(str(file_path), etln_record)
     return (base, success, error)
 
+
 if __name__ == "__main__":
-        
-        start_wall_time = time.time()
-        start_cpu_time = time.process_time()
-        
-        parser = argparse.ArgumentParser(description="Decompose ETL files")
-        parser.add_argument("input", help="input directory containing ETL files")
-        parser.add_argument("--workers", type=int, default=1, 
-                          help="Number of worker processes (default: single process)")
-        parser.add_argument("--single", action="store_true", default=False, 
-                          help="Process a single file")
-        parser.add_argument("--jis201", default="/Users/chai/mojinet/utils/JIS0201.TXT",
-                          help="Path to JIS X 0201 mapping file")
-        parser.add_argument("--jis208", default="/Users/chai/mojinet/utils/JIS0208.TXT",
-                          help="Path to JIS X 0208 mapping file")
-        args = parser.parse_args()
 
-        #* Load both mappings
-        mapping_201 = load_jis_map(args.jis201, format='201')
-        mapping_208 = load_jis_map(args.jis208, format='208')
-        JISMappingMixin.set_mapping(mapping_201, mapping_208)
+    start_wall_time = time.time()
+    start_cpu_time = time.process_time()
 
-        input_path = Path(args.input)
-        print(f"Processing ETL files in {input_path}")
-        logging.info(f"Processing ETL files in {input_path}")
+    parser = argparse.ArgumentParser(description="Decompose ETL files")
+    parser.add_argument("input", help="input directory containing ETL files")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of worker processes (default: single process)",
+    )
+    parser.add_argument(
+        "--single", action="store_true", default=False, help="Process a single file"
+    )
+    parser.add_argument(
+        "--jis201",
+        default="/Users/chai/mojinet/utils/JIS0201.TXT",
+        help="Path to JIS X 0201 mapping file",
+    )
+    parser.add_argument(
+        "--jis208",
+        default="/Users/chai/mojinet/utils/JIS0208.TXT",
+        help="Path to JIS X 0208 mapping file",
+    )
+    args = parser.parse_args()
 
-        if args.single:
-            etl_files = [input_path]
-        else:
-            etl_files = [f for f in input_path.glob("**/ETL*") if f.is_file() and f.suffix == "" and not f.name.endswith("INFO")]
-        
-        if not etl_files:
-            print(f"No ETL files found in {input_path}")
-            exit(1)
+    # * Load both mappings
+    mapping_201 = load_jis_map(args.jis201, format="201")
+    mapping_208 = load_jis_map(args.jis208, format="208")
+    JISMappingMixin.set_mapping(mapping_201, mapping_208)
 
-        print(f"Found {len(etl_files)} ETL files. Processing with {args.workers} workers...")
+    input_path = Path(args.input)
+    print(f"Processing ETL files in {input_path}")
+    logging.info(f"Processing ETL files in {input_path}")
 
-        debug_mode = False 
+    if args.single:
+        etl_files = [input_path]
+    else:
+        etl_files = [
+            f
+            for f in input_path.glob("**/ETL*")
+            if f.is_file() and f.suffix == "" and not f.name.endswith("INFO")
+        ]
 
-        with multiprocessing.Pool(args.workers) as pool:
-            process_args = [(str(f), args.jis201, args.jis208, debug_mode) for f in etl_files]
-            
-            results = []
-            with tqdm(total=len(etl_files), 
-                     desc="Processing ETL files 📝",
-                     bar_format="{desc}: {percentage:3.0f}%|{bar:30}| {n_fmt}/{total_fmt} files [eta: {remaining}]") as pbar:
-                for result in pool.imap_unordered(process_etl_file, process_args):
-                    results.append(result)
-                    pbar.update()
+    if not etl_files:
+        print(f"No ETL files found in {input_path}")
+        exit(1)
 
-        if debug_mode:
-            print("\nDebug Output:")
-            for name, _, message in results:
-                print(f"{name}: {message}")
-        else:
-            success_count = sum(1 for _, success, _ in results if success)
-            print(f"\nProcessing complete: {success_count}/{len(etl_files)} files processed successfully")
+    print(
+        f"Found {len(etl_files)} ETL files. Processing with {args.workers} workers..."
+    )
 
-            failures = [(name, error) for name, success, error in results if not success]
-            if failures:
-                print("\nFailed files:")
-                for name, error in failures:
-                    print(f"- {name}: {error}")
+    debug_mode = False
 
-        end_wall_time = time.time()
-        end_cpu_time = time.process_time()
-        
-        wall_time = end_wall_time - start_wall_time
-        cpu_time = end_cpu_time - start_cpu_time
-        
-        print(f"\nTiming Statistics:")
-        print(f"Wall time: {wall_time:.2f} seconds")
-        print(f"CPU time: {cpu_time:.2f} seconds")
-        print(f"CPU/Wall ratio: {cpu_time/wall_time:.2%}")
+    with multiprocessing.Pool(args.workers) as pool:
+        process_args = [
+            (str(f), args.jis201, args.jis208, debug_mode) for f in etl_files
+        ]
 
-#* B files come pre-normalised (see 8/9B)
+        results = []
+        with tqdm(
+            total=len(etl_files),
+            desc="Processing ETL files 📝",
+            bar_format="{desc}: {percentage:3.0f}%|{bar:30}| {n_fmt}/{total_fmt} files [eta: {remaining}]",
+        ) as pbar:
+            for result in pool.imap_unordered(process_etl_file, process_args):
+                results.append(result)
+                pbar.update()
+
+    if debug_mode:
+        print("\nDebug Output:")
+        for name, _, message in results:
+            print(f"{name}: {message}")
+    else:
+        success_count = sum(1 for _, success, _ in results if success)
+        print(
+            f"\nProcessing complete: {success_count}/{len(etl_files)} files processed successfully"
+        )
+
+        failures = [(name, error) for name, success, error in results if not success]
+        if failures:
+            print("\nFailed files:")
+            for name, error in failures:
+                print(f"- {name}: {error}")
+
+    end_wall_time = time.time()
+    end_cpu_time = time.process_time()
+
+    wall_time = end_wall_time - start_wall_time
+    cpu_time = end_cpu_time - start_cpu_time
+
+    print(f"\nTiming Statistics:")
+    print(f"Wall time: {wall_time:.2f} seconds")
+    print(f"CPU time: {cpu_time:.2f} seconds")
+    print(f"CPU/Wall ratio: {cpu_time/wall_time:.2%}")
+
+# * B files come pre-normalised (see 8/9B)
