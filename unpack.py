@@ -8,10 +8,10 @@ import re
 import jaconv  # type: ignore
 import multiprocessing
 from tqdm import tqdm  # type: ignore
-import codecs
 import logging
-import sys
 import unicodedata
+import time
+
 
  #* JIS x 0201 mapped files contain half-width katakana (from old terminal intefaces). 
     #* normalising through NFKC will convert half-width katakana to full-width
@@ -418,79 +418,74 @@ class ETL9B_Record(ETLn_Record): #* works
 
 
 def unpack(filename, etln_record):
-
     try:
         base = Path(filename).name
         folder = Path(filename).parent
-        temp_files = []  # Track created files for cleanup on failure
-
+        temp_files = []
+    
         f = bitstring.ConstBitStream(filename=filename)
-
+    
         if re.match(r"ETL[89]B_Record", etln_record.__class__.__name__):
             f.bytepos = etln_record.octets_per_record
-
+    
         chars = []
         images = []
         records = []
-
+    
         rows, cols = 40, 50
         rows_by_cols = rows * cols
-
+    
         c = 0
-
+    
         while f.pos < f.length:
             record = etln_record.read(f)
-            #       print(f"Record: {record}")
             try:
                 char = etln_record.get_char()
-             #   print(f"gotten char: {char}")
                 logging.debug(f"Position {f.pos}: Got character {char}")
             except Exception as e:
                 logging.error(f"\nPosition {f.pos}: Failed to decode - {e}\n")
                 char = "__null__"
             img = etln_record.get_image()
-
+    
             chars.append(char)
             images.append(img)
             records.append(record)
-
+    
             if len(chars) % rows_by_cols == 0 or f.pos >= f.length:
                 txt = "\n".join(
                     ["".join(chars[j * cols : (j + 1) * cols]) for j in range(rows)]
                 )
-                txtfn = folder / "{}_{:02d}.txt".format(base, c)
+                txtfn = folder / f"{base}_{c:02d}.txt"
                 temp_files.append(txtfn)
-
+    
                 with open(txtfn, "w", encoding="utf-8") as txtf:
                     txtf.write(txt)
-
+    
                 w, h = images[0].width, images[0].height
-
                 tiled = Image.new(images[0].mode, (w * cols, h * rows))
-
-                for ij in range(len(images)):
-                    i, j = ij % cols, ij // cols
-                    tiled.paste(images[ij], (w * i, h * j))
-
-                tiledfn = folder / "{}_{:02d}.png".format(base, c)
+    
+                for ij, image in enumerate(images):
+                    i, j = divmod(ij, cols)
+                    tiled.paste(image, (w * j, h * i)) #* old commit messed this up oopsie
+    
+                tiledfn = folder / f"{base}_{c:02d}.png"
                 temp_files.append(tiledfn)
                 tiled.save(tiledfn)
-
-                chars = []
-                images = []
+    
+                chars.clear()
+                images.clear()
                 c += 1
-
-        csvfn = folder / "{}.csv".format(base)
+    
+        csvfn = folder / f"{base}.csv"
         temp_files.append(csvfn)
-
-        with open(csvfn, "w") as rf:
+    
+        with open(csvfn, "w", newline='') as rf:
             writer = csv.writer(rf)
             writer.writerow(etln_record.fields[:-1])
-            for ir in records:
-                writer.writerow(list(ir.values())[:-1])
-
+            writer.writerows([list(ir.values())[:-1] for ir in records])
+    
         return True, None
-
+    
     except Exception as e:
         logging.error(f"Error processing file {filename}: {e}")
         logging.error(f"Record: {etln_record.read(f)}")
@@ -502,12 +497,17 @@ def unpack(filename, etln_record):
                 pass
         return False, str(e)
 
-
 def process_etl_file(args):
     if isinstance(args, tuple):
-        file_path, mapping_path_201, mapping_path_208 = args
+        file_path, mapping_path_201, mapping_path_208,debug_mode = args
+        if debug_mode:
+            worker_id = multiprocessing.current_process().name
+            return (Path(file_path).name, True, f"Worker {worker_id} would process this file")
     else:
-        file_path = args
+        file_path,debug_mode = args
+        if debug_mode:
+            worker_id = multiprocessing.current_process().name
+            return (Path(file_path).name, True, f"Worker {worker_id} would process this file")
         mapping_path_201 = "/Users/chai/mojinet/utils/JIS0201.TXT"
         mapping_path_208 = "/Users/chai/mojinet/utils/JIS0208.TXT"
 
@@ -551,60 +551,79 @@ def process_etl_file(args):
     success, error = unpack(str(file_path), etln_record)
     return (base, success, error)
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Decompose ETL files")
-    parser.add_argument("input", help="input directory containing ETL files")
-    parser.add_argument("--workers", type=int, default=1, 
-                      help="Number of worker processes (default: single process)")
-    parser.add_argument("--single", action="store_true", default=False, 
-                      help="Process a single file")
-    parser.add_argument("--jis201", default="/Users/chai/mojinet/utils/JIS0201.TXT",
-                      help="Path to JIS X 0201 mapping file")
-    parser.add_argument("--jis208", default="/Users/chai/mojinet/utils/JIS0208.TXT",
-                      help="Path to JIS X 0208 mapping file")
-    args = parser.parse_args()
+        
+        start_wall_time = time.time()
+        start_cpu_time = time.process_time()
+        
+        parser = argparse.ArgumentParser(description="Decompose ETL files")
+        parser.add_argument("input", help="input directory containing ETL files")
+        parser.add_argument("--workers", type=int, default=1, 
+                          help="Number of worker processes (default: single process)")
+        parser.add_argument("--single", action="store_true", default=False, 
+                          help="Process a single file")
+        parser.add_argument("--jis201", default="/Users/chai/mojinet/utils/JIS0201.TXT",
+                          help="Path to JIS X 0201 mapping file")
+        parser.add_argument("--jis208", default="/Users/chai/mojinet/utils/JIS0208.TXT",
+                          help="Path to JIS X 0208 mapping file")
+        args = parser.parse_args()
 
-    #* Load both mappings
-    mapping_201 = load_jis_map(args.jis201, format='201')
-    mapping_208 = load_jis_map(args.jis208, format='208')
-    JISMappingMixin.set_mapping(mapping_201, mapping_208)
+        #* Load both mappings
+        mapping_201 = load_jis_map(args.jis201, format='201')
+        mapping_208 = load_jis_map(args.jis208, format='208')
+        JISMappingMixin.set_mapping(mapping_201, mapping_208)
 
-    input_path = Path(args.input)
-    print(f"Processing ETL files in {input_path}")
-    logging.info(f"Processing ETL files in {input_path}")
+        input_path = Path(args.input)
+        print(f"Processing ETL files in {input_path}")
+        logging.info(f"Processing ETL files in {input_path}")
 
-    if args.single:
-        etl_files = [input_path]
-    else:
-        etl_files = [f for f in input_path.glob("ETL*") if f.is_file() and f.suffix == "" and not f.name.endswith("INFO")]
-    
-    if not etl_files:
-        print(f"No ETL files found in {input_path}")
-        exit(1)
+        if args.single:
+            etl_files = [input_path]
+        else:
+            etl_files = [f for f in input_path.glob("**/ETL*") if f.is_file() and f.suffix == "" and not f.name.endswith("INFO")]
+        
+        if not etl_files:
+            print(f"No ETL files found in {input_path}")
+            exit(1)
 
-    print(f"Found {len(etl_files)} ETL files. Processing with {args.workers} workers...")
+        print(f"Found {len(etl_files)} ETL files. Processing with {args.workers} workers...")
 
-    with multiprocessing.Pool(args.workers) as pool:
-        process_args = [(str(f), args.jis201, args.jis208) for f in etl_files]
-        results = list(
-            tqdm(
-                pool.imap(process_etl_file, process_args),
-                total=len(etl_files),
-                desc="Processing ETL files 📝",
-                bar_format="{desc}: {percentage:3.0f}%|{bar:30}| {n_fmt}/{total_fmt} files [eta: {remaining}]",
-            )
-        )
+        debug_mode = False 
 
-    success_count = sum(1 for _, success, _ in results if success)
-    print(
-        f"\nProcessing complete: {success_count}/{len(etl_files)} files processed successfully"
-    )
+        with multiprocessing.Pool(args.workers) as pool:
+            process_args = [(str(f), args.jis201, args.jis208, debug_mode) for f in etl_files]
+            
+            results = []
+            with tqdm(total=len(etl_files), 
+                     desc="Processing ETL files 📝",
+                     bar_format="{desc}: {percentage:3.0f}%|{bar:30}| {n_fmt}/{total_fmt} files [eta: {remaining}]") as pbar:
+                for result in pool.imap_unordered(process_etl_file, process_args):
+                    results.append(result)
+                    pbar.update()
 
-    failures = [(name, error) for name, success, error in results if not success]
-    if failures:
-        print("\nFailed files:")
-        for name, error in failures:
-            print(f"- {name}: {error}")
+        if debug_mode:
+            print("\nDebug Output:")
+            for name, _, message in results:
+                print(f"{name}: {message}")
+        else:
+            success_count = sum(1 for _, success, _ in results if success)
+            print(f"\nProcessing complete: {success_count}/{len(etl_files)} files processed successfully")
+
+            failures = [(name, error) for name, success, error in results if not success]
+            if failures:
+                print("\nFailed files:")
+                for name, error in failures:
+                    print(f"- {name}: {error}")
+
+        end_wall_time = time.time()
+        end_cpu_time = time.process_time()
+        
+        wall_time = end_wall_time - start_wall_time
+        cpu_time = end_cpu_time - start_cpu_time
+        
+        print(f"\nTiming Statistics:")
+        print(f"Wall time: {wall_time:.2f} seconds")
+        print(f"CPU time: {cpu_time:.2f} seconds")
+        print(f"CPU/Wall ratio: {cpu_time/wall_time:.2%}")
 
 #* B files come pre-normalised (see 8/9B)
