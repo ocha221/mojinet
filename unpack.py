@@ -13,13 +13,15 @@ import logging
 import sys
 import unicodedata
 
-def jis_to_hiragana(text): #! mainly obsolete, you might be able to just hardcode this into ETL7 
-    if not text:
-        return None
-    #* JIS x 0201 mapped files contain half-width katakana (from old terminal intefaces). 
+ #* JIS x 0201 mapped files contain half-width katakana (from old terminal intefaces). 
     #* normalising through NFKC will convert half-width katakana to full-width
     #* then we subtract the offset (from UTF docs) to convert to hiragana
     #* we dont care about predicting half-width katakana so this should be fine
+    
+
+def jis_to_hiragana(text): #! mainly obsolete, you might be able to just hardcode this into ETL7 
+    if not text:
+        return None
     is_halfwidth = (0xFF61 <= ord(text) <= 0xFF9F)
     
     if is_halfwidth:
@@ -31,7 +33,7 @@ def jis_to_hiragana(text): #! mainly obsolete, you might be able to just hardcod
    
    
 
-def load_jis_map(*filenames):
+def load_jis_map(*filenames, format):
     jis_to_unicode = {}
     
     for filename in filenames:
@@ -40,10 +42,19 @@ def load_jis_map(*filenames):
                 line = line.strip()
                 if line and not line.startswith("#"):
                     parts = line.split("\t")
-                    if len(parts) >= 2:
-                        jis_code = int(parts[0].replace("0x", ""), 16)
-                        unicode_value = int(parts[1].replace("0x", ""), 16)
-                        jis_to_unicode[jis_code] = unicode_value
+                    
+                    if format == '201':
+                        if len(parts) >= 2:
+                            jis_code = int(parts[0].replace("0x", ""), 16)
+                            unicode_value = int(parts[1].replace("0x", ""), 16)
+                            jis_to_unicode[jis_code] = unicode_value
+                    
+                    elif format == '208':
+                        if len(parts) >= 3:
+                            jis_code = int(parts[1].replace("0x", ""), 16)
+                            unicode_value = int(parts[2].replace("0x", ""), 16)
+                            jis_to_unicode[jis_code] = unicode_value
+    
     return jis_to_unicode
 
 
@@ -73,7 +84,7 @@ class JISMappingMixin:  # ?
     _jis_mapping_208 = None
 
     @classmethod
-    def set_mapping(cls, mapping_201, mapping_208=None):
+    def set_mapping(cls, mapping_201, mapping_208 ):
         cls._jis_mapping_201 = mapping_201
         cls._jis_mapping_208 = mapping_208
 
@@ -90,7 +101,7 @@ class JISMappingMixin:  # ?
         raise ValueError("Invalid mapping type. Use '201' or '208'")
 
 
-class ETLn_Record:
+class ETLn_Record(JISMappingMixin):
     def read(self, bs, pos=None):
         if pos:
             f.bytepos = pos * self.octets_per_record
@@ -264,7 +275,7 @@ class ETL345_Record(ETLn_Record, JISMappingMixin):  # * works!
         return jis_to_hiragana(char)
 
 
-class ETL8G_Record(ETLn_Record):
+class ETL8G_Record(ETLn_Record, JISMappingMixin): #* workey :)
     def __init__(self):
         self.octets_per_record = 8199
         self.fields = [
@@ -294,13 +305,23 @@ class ETL8G_Record(ETLn_Record):
         }
 
     def get_char(self):
-        char = bytes.fromhex(
-            "1b2442" + self.record["JIS Kanji Code"] + "1b2842"
-        ).decode("iso2022_jp")
+        jis_code = self.record["JIS Kanji Code"]
+        if isinstance(jis_code, str):
+            jis_code = int(jis_code.replace("0x", ""), 16)
+
+        if jis_code == 0x0:
+            return chr(0x0000)
+
+        unicode_value = None
+        unicode_value = self.get_mapping('208').get(jis_code)
+        if unicode_value is None:
+            logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
+            return None
+            
+        char = chr(unicode_value)
         return char
 
-
-class ETL8B_Record(ETLn_Record):
+class ETL8B_Record(ETLn_Record): #* donee
     def __init__(self):
         self.octets_per_record = 512
         self.fields = [
@@ -316,13 +337,25 @@ class ETL8B_Record(ETLn_Record):
         }
 
     def get_char(self):
-        char = bytes.fromhex(
-            "1b2442" + self.record["JIS Kanji Code"] + "1b2842"
-        ).decode("iso2022_jp")
+        jis_code = self.record["JIS Kanji Code"]
+        if isinstance(jis_code, str):
+            jis_code = int(jis_code.replace("0x", ""), 16)
+
+        if jis_code == 0x0:
+            return chr(0x0000)
+
+        unicode_value = None
+        unicode_value = self.get_mapping('208').get(jis_code)
+        if unicode_value is None:
+            logging.error(f"No Unicode mapping found for JIS code: {hex(jis_code)}")
+            return None
+            
+        char = chr(unicode_value)
         return char
 
 
-class ETL9G_Record(ETLn_Record):
+
+class ETL9G_Record(ETLn_Record): #* donee
     def __init__(self):
         self.octets_per_record = 8199
         self.fields = [
@@ -358,7 +391,7 @@ class ETL9G_Record(ETLn_Record):
         return char
 
 
-class ETL9B_Record(ETLn_Record):
+class ETL9B_Record(ETLn_Record): #* works
     def __init__(self):
         self.octets_per_record = 576
         self.fields = [
@@ -496,19 +529,23 @@ def process_etl_file(args):
         etln_record = ETL345_Record()
         needs_mapping = True
     elif re.match(r"ETL8G", base):
+        needs_mapping = True
         etln_record = ETL8G_Record()
     elif re.match(r"ETL8B", base):
+        needs_mapping = True
         etln_record = ETL8B_Record()
     elif re.match(r"ETL9G", base):
+        needs_mapping = True
         etln_record = ETL9G_Record()
     elif re.match(r"ETL9B", base):
+        needs_mapping = True
         etln_record = ETL9B_Record()
     else:
         return (base, False, "Unknown ETL format")
 
     if needs_mapping:
-        mapping_201 = load_jis_map(mapping_path_201)
-        mapping_208 = load_jis_map(mapping_path_208)
+        mapping_201 = load_jis_map(mapping_path_201, format='201')
+        mapping_208 = load_jis_map(mapping_path_208, format='208')
         JISMappingMixin.set_mapping(mapping_201, mapping_208)
 
     success, error = unpack(str(file_path), etln_record)
@@ -529,8 +566,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     #* Load both mappings
-    mapping_201 = load_jis_map(args.jis201)
-    mapping_208 = load_jis_map(args.jis208)
+    mapping_201 = load_jis_map(args.jis201, format='201')
+    mapping_208 = load_jis_map(args.jis208, format='208')
     JISMappingMixin.set_mapping(mapping_201, mapping_208)
 
     input_path = Path(args.input)
@@ -540,7 +577,7 @@ if __name__ == "__main__":
     if args.single:
         etl_files = [input_path]
     else:
-        etl_files = [f for f in input_path.glob("ETL*_*") if f.is_file() and f.suffix == ""]
+        etl_files = [f for f in input_path.glob("ETL*") if f.is_file() and f.suffix == "" and not f.name.endswith("INFO")]
     
     if not etl_files:
         print(f"No ETL files found in {input_path}")
@@ -569,3 +606,5 @@ if __name__ == "__main__":
         print("\nFailed files:")
         for name, error in failures:
             print(f"- {name}: {error}")
+
+#* B files come pre-normalised (see 8/9B)
