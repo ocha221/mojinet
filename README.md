@@ -35,5 +35,10 @@ where output_dir is the argument you pass to grid_to_single and log.json stores:
 
 →per-ETL folder (ETL1/2/3...) specifics 
 
+```python3 grid_walk.py```
+I had some trouble with tag cleanup. Some are wrapped with \n characters, so only skipping 0x00A in your tag reading logic doesnt work.
+grid_walk lets you examine specific grids on a per-image basis; it loads image by image, along with its position, the hex/utf8 rendition of the label from the txt that *should* correspond to it and context about the next & previous 5 chars. 
+
+
 ## Notes
-ETL1/6/7 all use half-width katakana for the labels; On ETL6, it maps to full-width katakana(as in, the character ア will respond to an ア in the image grid). However, on ETL7 it maps to hiragana (half-width ア in the text → あ in the image), so ETL6 only requires you normalise after converting to unicode, but ETL7 also needs to be offset to hiragana.
+If you extract with the provided unpack all JIS (0201/0208) characters get converted to unicode and then further [normalised in the case of half or full width](https://www.unicode.org/charts/PDF/UFF00.pdf) depending on the file being processed. ETL1/6/7 all use half-width katakana for the labels; On ETL6, it maps to full-width katakana(as in, the character ア will respond to an ア in the image grid). However, on ETL7 it maps to hiragana (half-width ア in the text → あ in the image), so ETL6 only requires you normalise after converting to unicode, but ETL7 also needs to be offset to hiragana.
