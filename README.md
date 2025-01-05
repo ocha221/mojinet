@@ -8,12 +8,14 @@ Deep learning Japanese character recognition model using [ConvNeXt](https://gith
 - Training/inference pipeline
 
 
-## Working with the ETL cdb
+# Working with the ETL cdb
 
-```python3 unpack.py <your etl Directory> or --single <path to a single ETL binary> ```
+### ```unpack.py```
+
+
 built on top of the sample script provided to fix JIS mapping, add batched processing and QoL like logging. It outputs the image grid, a txt file containing the characters and a csv with the rest of the data in the binary. It populates each ETL folder with the extracted files. unpack.py supports multiprocessing with 8 default workers.
 
-```python3 grid_to_single.py```
+### ```python3 grid_to_single.py```
 splices the grid(s) into single images. It creates and manages the following filesystem structure:
 
 ```
@@ -35,9 +37,10 @@ where output_dir is the argument you pass to grid_to_single and log.json stores:
 
 →per-ETL folder (ETL1/2/3...) specifics 
 
-```python3 grid_walk.py```
+### ```grid_walk.py```
 I had some trouble with tag cleanup. Some are wrapped with \n characters, so only skipping 0x00A in your tag reading logic doesnt work.
 grid_walk lets you examine specific grids on a per-image basis; it loads image by image, along with its position, the hex/utf8 rendition of the label from the txt that *should* correspond to it and context about the next & previous 5 chars. 
+<img width="1612" alt="grid_walk" src="https://github.com/user-attachments/assets/b7ce83ec-9453-4ec1-ba09-e829464f14c3" />
 
 
 ## Notes
