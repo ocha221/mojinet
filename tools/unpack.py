@@ -11,7 +11,7 @@ from tqdm import tqdm  # type: ignore
 import logging
 import unicodedata
 import time
-
+import os
 
 # * JIS x 0201 mapped files contain half-width katakana (from old terminal intefaces).
 # * normalising through NFKC will convert half-width katakana to full-width
@@ -107,6 +107,12 @@ class JISMappingMixin:  # ?
 
 
 class ETLn_Record(JISMappingMixin):
+    def __init__(self):
+        self.octets_per_record = 0
+        self.fields = []
+        self.bitstring = ""
+        self.converter = {}
+    
     def read(self, bs, pos=None):
         if pos:
             f.bytepos = pos * self.octets_per_record
@@ -437,7 +443,7 @@ class ETL9B_Record(ETLn_Record):  # * works
             ).decode("iso2022_jp")
             return char
         except UnicodeDecodeError:
-            logging.error(f"\nFailed to decode character: {char}\n")
+            logging.error(f"\nFailed to decode character: {self.record["JIS Kanji Code"]}\n")
             return "__null__"
 
 
@@ -587,6 +593,26 @@ def process_etl_file(args):
     return (base, success, error)
 
 
+def fast_etl_file_scan(input_path): #* faster implementation taken from tile_to_grid!
+    etl_files = []
+    
+    def scan_directory(dir_path):
+        try:
+            for entry in os.scandir(dir_path):
+                if entry.is_file():
+                    #Check if file is an ETL binary (no suffix and not INFO)
+                    if (entry.name.startswith('ETL') and 
+                        not entry.name.endswith('INFO') and 
+                        '.' not in entry.name):
+                        etl_files.append(entry.path)
+                elif entry.is_dir() and entry.name != "temp_workers" and entry.name != "processed_etl": #* otherwise it recurses into these
+                    scan_directory(entry.path)
+        except OSError as e:
+            logging.error(f"Error scanning directory {dir_path}: {e}")
+    
+    scan_directory(input_path)
+    return etl_files
+
 if __name__ == "__main__":
 
     start_wall_time = time.time()
@@ -627,11 +653,10 @@ if __name__ == "__main__":
     if args.single:
         etl_files = [input_path]
     else:
-        etl_files = [
-            f
-            for f in input_path.glob("**/ETL*")
-            if f.is_file() and f.suffix == "" and not f.name.endswith("INFO")
-        ]
+        logging.info(f"Scanning for ETL files in {input_path}")
+        etl_files = fast_etl_file_scan(str(input_path))
+        etl_files = [Path(f) for f in etl_files]
+
 
     if not etl_files:
         print(f"No ETL files found in {input_path}")
@@ -686,3 +711,4 @@ if __name__ == "__main__":
     print(f"CPU/Wall ratio: {cpu_time/wall_time:.2%}")
 
 # * B files come pre-normalised (see 8/9B)
+
