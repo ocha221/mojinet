@@ -13,14 +13,21 @@ Deep learning Japanese character recognition model using [ConvNeXt](https://gith
 ## Key features
 
 →Fully parallelised using processes to avoid GIL (FS i/o is a smaller bottleneck than GIL) 
+
 →Character grid extraction and tiling
+
 →Support for all ETL dataset types (ETL1-9)
+
 →Fixed JIS to Unicode character conversion
+
 →Visual debugging tools for grid inspection
 
 ✅Binary ETL file unpacking (unpack.py)　& character mapping 
+
 ✅Image grid extraction (tiles_from_pairs.py)
+
 ✅Grid debugging  (grid_walk.py)
+
 ✅Multi-worker output merging (merger.py)
 
 
@@ -54,7 +61,16 @@ where output_dir is the directory you specify (default temp_workers and processi
 
 ### ```merger.py```
 
-Merges the scattered labels into a unified indexed structure. Generates an index of labels out of tiles_from_pairs' output so that merging can be parallelised. Dry-run capability for operation verification before commiting to disk. Very efficient search (only takes about 5 seconds to map everything), but the final execution time will depend on your ssd speed. On my M1 macbook, it takes about 300 seconds to write the whole dataset when using 8 workers.
+Merges the scattered labels into a unified indexed structure. Generates an index of labels out of tiles_from_pairs' output so that merging can be parallelised. Dry-run capability for operation verification before commiting to disk. Very efficient search (only takes about 5 seconds to map everything), but the final execution time will depend on your ssd speed. On my M1 macbook, it takes about 150 seconds to write the whole dataset when using 8 workers.
+
+note: os.sendfile made it twice as fast, however I only tested on macos.
+
+old:<img width="518" alt="Old" src="https://github.com/user-attachments/assets/cd318142-2fde-48a7-b7eb-bbf63f97e550" />
+
+
+new:![new](https://github.com/user-attachments/assets/3f2b28f4-670f-4d72-b115-54fe451b54b9)
+
+
 
 ```
 Input Structure:
