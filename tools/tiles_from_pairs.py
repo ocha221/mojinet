@@ -128,7 +128,7 @@ def main():
     parser = argparse.ArgumentParser(description="Slice ETL dataset grids into tiles")
     parser.add_argument("input", help="Base directory containing ETL dataset folders")
     parser.add_argument(
-        "--workers", type=int, default=16, help="Number of worker processes"
+        "--workers", type=int, default=8, help="Number of worker processes"
     )
     parser.add_argument(
         "--temp", help="Temporary directory for worker outputs", default="temp_workers"
@@ -150,6 +150,7 @@ def main():
         input("Enter ETL type to process (or 'all' for all types): ").strip().upper()
     )
     start_time = datetime.now()
+
     etl_types = (
         list(ETL_IMAGE_SIZES.keys()) if user_input.lower() == "all" else [user_input]
     )
@@ -184,12 +185,33 @@ def main():
         f"\nFile pair search took: {duration}\nFound {len(pairs)} PNG/TXT pairs to process"
     )
 
+     # Check if temp directory is not empty
+    if any(temp_dir.iterdir()):
+        warning = "\nWARNING: Temporary directory is not empty. This could lead to duplicate data in the final dataset."
+        logger.warning(warning)
+        continue_input = input("Do you want to continue? (y/N): ").strip().lower()
+        if continue_input != 'y':
+            logger.info("Operation cancelled by user.")
+            return
+        
     process_args = [
         (png, txt, temp_dir, i % args.workers) for i, (png, txt) in enumerate(pairs)
     ]
 
+    #print(f"search: {len(process_args)}, set: {len(list(set(process_args)))} ")
+    
     logger.info(f"\tProcessing with {args.workers} workers")
 
+    """ print("Processing all grids sequentially...")
+    results = []
+    for args in tqdm(process_args, desc="Processing grids"):
+        result = process_grid(args)
+        results.append(result)
+        if result['status'] == 'success':
+            print(f"Grid {args[0].stem} produced {result['stats']['processed']} files")
+    #print(f"Single grid produced {result['stats']['processed']} files")
+
+    return"""
     results = []
     chunk_size = len(process_args) // (
         args.workers * 4
@@ -197,17 +219,15 @@ def main():
 
     try:
         with ProcessPoolExecutor(max_workers=args.workers) as executor:
-            futures = list(
+            results = list(
                 tqdm(
                     executor.map(
                         process_grid, process_args, chunksize=chunk_size
-                    ),  # * map uses a little more memory fyi
+                    ), # * map uses a little more memory fyi
                     total=len(process_args),
                     desc="Processing grids",
                 )
             )
-
-            results = [result for result in futures]
 
     except KeyboardInterrupt:
         logger.error("Processing interrupted by user")
