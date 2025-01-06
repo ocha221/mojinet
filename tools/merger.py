@@ -1,5 +1,4 @@
 from pathlib import Path
-import shutil
 from tqdm import tqdm
 import logging
 from collections import defaultdict
@@ -7,6 +6,7 @@ import multiprocessing as mp
 import json
 import os
 import time
+import fcntl
 
 
 logging.basicConfig(level=logging.INFO)
@@ -44,72 +44,6 @@ def safe_json_serialize(obj):
         return json.dumps(sanitized, ensure_ascii=False, separators=(",", ":"))
 
 
-def process_character(args):
-    character, grid_paths, final_dir, worker_id, dry_run = args
-    stats = {
-        "worker_id": worker_id,
-        "character": character,
-        "input_files": 0,
-        "output_files": 0,
-        "source_grids": len(grid_paths),
-        "operations": [],  # * for debugging your dry runs
-    }
-
-    char_output_dir = Path(final_dir) / character
-    if not dry_run:
-        os.makedirs(char_output_dir, exist_ok=True)
-
-    grid_info = {}
-    all_files = []  # * List to store all files we find
-
-    #* collecting
-
-    for grid_path in grid_paths:
-        char_dir = Path(grid_path) / character
-        if char_dir.exists():
-            files_in_grid = [
-                entry.path
-                for entry in os.scandir(char_dir)
-                if entry.is_file() and entry.name.endswith(".png")
-            ]
-            all_files.extend(files_in_grid)
-
-            grid_info[str(grid_path)] = {
-                "file_count": len(files_in_grid),
-                "path": str(grid_path),
-                "start_idx": global_counter,
-                "end_idx": global_counter + len(files_in_grid) - 1,
-            }
-
-            for src_file in files_in_grid:
-                dst_file_str = str(char_output_dir / f"{global_counter}.png")
-
-                if dry_run:
-                    stats["operations"].append(
-                        {
-                            "source": src_file,
-                            "destination": dst_file_str,
-                            "index": global_counter,
-                        }
-                    )
-                else:
-                    shutil.copy2(src_file, dst_file_str)
-
-                global_counter += 1
-                stats["input_files"] += 1
-                stats["output_files"] += 1
-
-    stats_file = Path(final_dir) / f"worker_{worker_id}_stats.json"
-    try:
-        with open(stats_file, "w", encoding="utf-8") as f:
-            json_str = safe_json_serialize(stats)
-            f.write(json_str + "\n")
-    except Exception as e:
-        logger.error(f"Error writing stats for worker {worker_id}: {e}")
-
-    return character, grid_info
-
-
 def fast_directory_scan(
     worker_dirs,
 ):  # * this builds a dict of *every* symbol -> grid folders its found in
@@ -130,15 +64,150 @@ def fast_directory_scan(
     return results
 
 
-def merge_worker_outputs(dry_run, output_dir, final_dir, num_workers=None):
+def move_to(src, dst, buffer_size=1024 * 1024):
+    try:
+        with open(src, "rb") as fsrc:
+            with open(dst, "wb") as fdst:
+
+                src_fd = fsrc.fileno()
+                dst_fd = fdst.fileno()
+
+                try:
+                    os.sendfile(dst_fd, src_fd, 0, os.path.getsize(src))
+                    return True
+                except (AttributeError, OSError):
+                    while True:
+                        buf = os.read(src_fd, buffer_size)
+                        if not buf:
+                            break
+                        os.write(dst_fd, buf)
+                    return True
+    except OSError as e:
+        logger.error(f"Error copying {src} to {dst}: {e}")
+        return False
+
+
+def batch_process_files(files, dst_dir, start_idx):
+    results = []
+    current_idx = start_idx
+
+    for src_file in files:
+        dst_file = os.path.join(dst_dir, f"{current_idx}.png")
+        if move_to(src_file, dst_file):
+            results.append((current_idx, src_file, dst_file))
+        current_idx += 1
+
+    return results
+
+
+def process_character(args):
+    character, grid_paths, final_dir, worker_id, dry_run = args
+    stats = {
+        "worker_id": worker_id,
+        "character": character,
+        "input_files": 0,
+        "output_files": 0,
+        "source_grids": len(grid_paths),
+        "operations": [],
+    }
+
+    char_output_dir = os.path.join(final_dir, character)
+    if not dry_run:
+        os.makedirs(char_output_dir, exist_ok=True)
+
+    grid_info = {}
+    all_files = []
+
+    for grid_path in grid_paths:
+        char_dir = os.path.join(grid_path, character)
+        if os.path.exists(char_dir):
+            try:
+                with os.scandir(char_dir) as scanner:
+                    files_in_grid = [
+                        entry.path
+                        for entry in scanner
+                        if entry.name.endswith(".png") and entry.is_file()
+                    ]
+                    all_files.extend(files_in_grid)
+
+                    file_count = len(files_in_grid)
+                    grid_info[str(grid_path)] = {
+                        "file_count": file_count,
+                        "path": str(grid_path),
+                        "start_idx": stats["input_files"],
+                        "end_idx": stats["input_files"] + file_count - 1,
+                    }
+                    stats["input_files"] += file_count
+            except OSError as e:
+                logger.error(f"Error scanning directory {char_dir}: {e}")
+                continue
+
+    if not dry_run and all_files:  # * actually process files
+        batch_size = 1000
+        file_counter = 0
+        for i in range(0, len(all_files), batch_size):
+            batch = all_files[i : i + batch_size]
+            results = batch_process_files(batch, char_output_dir, file_counter)
+            stats["output_files"] += len(results)
+            file_counter += len(results)
+
+    if dry_run:
+        stats["operations"].extend(
+            [
+                {"source": src, "destination": f"{char_output_dir}/{i}.png", "index": i}
+                for i, src in enumerate(all_files)
+            ]
+        )
+
+    # ? these dont matter, dont worry if you dont see any stats on success. failures should show though
+    if not dry_run:
+        stats_file = os.path.join(final_dir, f"worker_{worker_id}_stats.json")
+        try:
+            stats_json = json.dumps(stats, ensure_ascii=False, separators=(",", ":"))
+
+            os.makedirs(os.path.dirname(stats_file), exist_ok=True)
+
+            # ? you might also not need locks here but unlike locking writing images this doesnt really impact perfomance
+            with open(stats_file, "w", encoding="utf-8") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    f.write(stats_json + "\n")
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+        except Exception as e:
+            logger.error(f"Error writing stats for worker {worker_id}: {e}")
+
+    return character, grid_info
+
+
+def merge_worker_outputs(
+    dry_run, output_dir, final_dir, num_workers=None, batch_size=1000
+):
+    try:
+        final_dir = os.path.abspath(final_dir)
+        os.makedirs(final_dir, exist_ok=True)
+
+        test_file = os.path.join(final_dir, ".write_test")
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+    except OSError as e:
+        logger.error(f"Cannot write to final directory {final_dir}: {e}")
+        raise
+
     if num_workers is None:
-        num_workers = mp.cpu_count()
+        num_workers = min(mp.cpu_count(), 16)
 
     logger.info(
         f"Starting {'dry run' if dry_run else 'merge'} with {num_workers} workers"
     )
 
-    worker_dirs = list(Path(output_dir).glob("worker_*"))
+    worker_dirs = [
+        d.path
+        for d in os.scandir(output_dir)
+        if d.name.startswith("worker_") and d.is_dir()
+    ]
 
     logger.info("Building initial index, hold...")
     start_time = time.time()
@@ -150,31 +219,31 @@ def merge_worker_outputs(dry_run, output_dir, final_dir, num_workers=None):
         f"✨ Initial index built in {elapsed_time:.2f} seconds! Found {len(symbol_to_grids)} unique symbols"
     )
 
-    if not dry_run:
-        os.makedirs(final_dir, exist_ok=True)
+    # * Always make sure final_dir exists
+    os.makedirs(final_dir, exist_ok=True)
 
-    if os.path.exists(final_dir):  # * This clears old worker files, not the images
-        for stats_file in Path(final_dir).glob("worker_*_stats.json"):
-            try:
-                os.remove(stats_file)
-            except Exception as e:
-                logger.error(f"Error removing old stats file {stats_file}: {e}")
-
-    logger.info(
-        f"Starting merge with {len(os.listdir(output_dir))} files in output_dir"
-    )
+    # * clear
+    if not dry_run and os.path.exists(final_dir):
+        for entry in os.scandir(final_dir):
+            if entry.name.endswith("_stats.json"):
+                try:
+                    os.remove(entry.path)
+                except OSError as e:
+                    logger.error(f"Error removing old stats file {entry.path}: {e}")
 
     char_chunks = chunk_dict(symbol_to_grids, num_workers)
+    process_args = [
+        (char, grids, final_dir, worker_id, dry_run)
+        for worker_id, chunk in enumerate(char_chunks)
+        for char, grids in chunk.items()
+    ]
 
-    process_args = []
-    for worker_id, chunk in enumerate(char_chunks):
-        for char, grids in chunk.items():
-            process_args.append((char, grids, final_dir, worker_id, dry_run))
     if not dry_run:
-        logger.info(f"Writing to disk, be patient...")
+        logger.info("Writing to disk, be patient...")
     logger.info(
-        f"Processing {len(symbol_to_grids)} characters, {len(process_args)} total entries with {num_workers} workers. "
+        f"Processing {len(symbol_to_grids)} characters, {len(process_args)} total entries with {num_workers} workers."
     )
+
     with mp.Pool(num_workers) as pool:
         results = list(
             tqdm(
@@ -183,65 +252,59 @@ def merge_worker_outputs(dry_run, output_dir, final_dir, num_workers=None):
                 desc="Processing characters",
             )
         )
-    print("Finished processing! Gathering stats, please wait...")
+    if not dry_run:
+        logger.info("Finished processing! Gathering stats...")
 
-    final_mapping = {char: grid_info for char, grid_info in results}
+        final_mapping = {char: grid_info for char, grid_info in results if grid_info}
 
-    total_stats = defaultdict(int)
-    operations = []
-    for stats_file in Path(final_dir).glob("worker_*_stats.json"):
-        try:
-            with open(stats_file, encoding="utf-8") as f:
-                for line in f:
-                    if line.strip(): 
+        total_stats = defaultdict(int)
+
+        for stats_file in os.scandir(final_dir):
+            if not stats_file.name.endswith("_stats.json"):
+                continue
+            try:
+                with open(stats_file.path, encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
                         try:
                             stats = json.loads(line)
                             total_stats["input_files"] += stats["input_files"]
                             total_stats["output_files"] += stats["output_files"]
                             total_stats["characters"] += 1
-                            if dry_run and "operations" in stats:
-                                operations.extend(stats["operations"])
                         except json.JSONDecodeError as e:
                             logger.error(
-                                f"Error parsing JSON line in {stats_file}: {e}"
+                                f"Error parsing JSON in {stats_file.path}: {e}"
                             )
-                            continue
-        except Exception as e:
-            logger.error(f"Error reading stats file {stats_file}: {e}")
-            continue
+            except OSError as e:
+                logger.error(f"Error reading stats file {stats_file.path}: {e}")
 
-    unique_sources = {op["source"] for op in operations}
-    logger.info(f"Total operations: {len(operations)}")
-    logger.info(f"Unique source files: {len(unique_sources)}")
-    logger.info("Sample of files to be processed:")
-    for source in list(unique_sources)[:5]:
-        logger.info(f"- {source}")
+        logger.info("\nProcessing Summary:")
+        logger.info(f"Total characters processed: {total_stats['characters']}")
+        logger.info(f"Total input files: {total_stats['input_files']}")
+        logger.info(f"Total output files: {total_stats['output_files']}")
+    else:
+        final_mapping = {char: grid_info for char, grid_info in results if grid_info}
 
-    logger.info("\nProcessing Summary:")
-    logger.info(f"Total characters processed: {total_stats['characters']}")
-    logger.info(f"Total input files: {total_stats['input_files']}")
-    logger.info(f"Total output files: {total_stats['output_files']}")
-
-    if dry_run:
-        logger.info("\nPlanned operations (first 10 examples):")
-        for op in operations[:10]:
-            logger.info(
-                f"Would copy {op['source']} -> {op['destination']} (file {op['index']})"
-            )
-        if len(operations) > 10:
-            logger.info(f"... and {len(operations) - 10} more operations")
+        logger.info("\nDry Run Summary:")
+        logger.info(f"Total characters to process: {len(final_mapping)}")
+        total_files = sum(
+            sum(grid["file_count"] for grid in char_info.values())
+            for char_info in final_mapping.values()
+        )
+        logger.info(f"Total files to process: {total_files}")
 
     return final_mapping
 
 
 if __name__ == "__main__":
-    OUTPUT_DIR = "point to the output of tiles_from_pairs.py, default etl_worker"
+    OUTPUT_DIR = "point to the output of tiles_from_pairs.py, default etl_worker"	 
     FINAL_DIR = "your choice"
 
     # * Clear the final directory first to avoid accumulation.
     #! This will delete all created files in the final directory, be careful!
     #! It might take a moment! Its > 1 million items
-    if os.path.exists(FINAL_DIR) and True:
+    if os.path.exists(FINAL_DIR) and False:
         logger.info(f"Clearing {FINAL_DIR} before run")
         files = os.listdir(FINAL_DIR)
         for f in tqdm(files, desc="Clearing directory"):
@@ -255,7 +318,10 @@ if __name__ == "__main__":
     # * Change dry_run to False to commit changes to disk
     # * Run with dry first to check out worker jsons, and the sample output.
     # * Dry_run = False will not print stats.
+    start_time = time.time()
     mapping = merge_worker_outputs(
         dry_run=True, output_dir=OUTPUT_DIR, final_dir=FINAL_DIR
     )
+    elapsed_time = time.time() - start_time
     print(f"\n{len(mapping)} unique characters")
+    print(f"Total execution time: {elapsed_time:.2f} seconds")
