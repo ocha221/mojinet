@@ -1,187 +1,254 @@
-import cv2 # type: ignore
-import numpy as np
-import os
+import cv2
 from pathlib import Path
-import glob
-from multiprocessing import Pool
-import itertools
-import unicodedata
+from tqdm import tqdm
+import argparse
+import logging
+import json
+from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor
 
-def jis_to_hiragana(text):
-    if not text:
-        return None
-    x = unicodedata.normalize('NFKC', text).replace('ヴ', 'う゛')
-    #* JIS x 0201 mapped files contain half-width katakana (from old terminal intefaces). 
-    #* normalising through NFKC will convert half-width katakana to full-width
-    #* then we subtract the offset (from UTF docs) to convert to hiragana
-    #* we dont care about predicting half-width katakana so this should be fine
-    if 0x30A1 <= ord(x) <= 0x30F3:  
-        return chr(ord(x) - 0x60)  # Convert to hiragana
-    return text
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-def load_jis_map(filename):  # * done
-    jis_to_unicode = {}
+ETL_IMAGE_SIZES = {
+    "ETL1": (64, 63),
+    "ETL2": (60, 60),
+    "ETL3": (72, 76),
+    "ETL4": (72, 76),
+    "ETL5": (72, 76),
+    "ETL6": (64, 63),
+    "ETL7": (64, 63),
+    "ETL8B": (64, 63),
+    "ETL8G": (128, 127),
+    "ETL9B": (64, 63),
+    "ETL9G": (128, 127),
+}
 
-    with open(filename, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                parts = line.split("\t")
-                if len(parts) >= 2:
-                    jis_code = int(parts[0].replace("0x", ""), 16)
-                    unicode_value = int(parts[1].replace("0x", ""), 16)
-                    jis_to_unicode[jis_code] = unicode_value
-    return jis_to_unicode
 
-def get_character(jis_code, mapping):
-    """Convert JIS code to Unicode character."""
-    if isinstance(jis_code, str):
-        jis_code = int(jis_code.replace('0x', ''), 16)
-    
-    unicode_value = mapping.get(jis_code)
-    if unicode_value is None:
-        return None
-    return chr(unicode_value)
-
-def split_grid_image(image_path, txt_path, output_dir, grid_size=(63,64)):
+def read_labels(txt_path):
     try:
-        # Read the full grid
-        img = cv2.imread(image_path)
+        with open(txt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            content = content.replace("\n", "")
+            return list(content)
+    except UnicodeDecodeError:
+        pass
+
+    raise ValueError(f"Failed to read labels from {txt_path}")
+
+
+def process_grid(args):
+    image_path, txt_path, output_dir, worker_id = args
+
+    try:
+        etl_type = None
+        for et in ETL_IMAGE_SIZES:
+            if et in str(image_path):
+                etl_type = et
+                break
+
+        if not etl_type:
+            return {
+                "status": "error",
+                "error": f"Unknown ETL type for {image_path}",
+                "file": str(image_path),
+            }
+
+        base_name = Path(image_path).stem
+        worker_output = Path(output_dir) / f"worker_{worker_id}" / base_name
+        worker_output.mkdir(parents=True, exist_ok=True)
+
+        img = cv2.imread(str(image_path))
         if img is None:
-            raise FileNotFoundError(f"Failed to load image: {image_path}")
-        
-        # Read the text file and clean labels - one char per line
-        labels = []
-        lines = 0
-        total_chars = 0
-        try:
-            with open(txt_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    lines += 1
-                    # Split line into individual characters
-                    chars = list(line.strip())
-                    total_chars += len(chars)
-                    #print(f"Line {lines}: Found {len(chars)} characters: {chars}")
-                    
-                    labels.extend(chars)
-                    #print(f"Added {len(chars)} characters")
-        except UnicodeDecodeError:
-            with open(txt_path, 'r', encoding='shift-jis') as f:
-                for line in f:
-                    chars = list(line.strip())
-                    labels.extend([char for char in chars if char and char != '\x00'])
-        labels = [jis_to_hiragana(char) for char in labels]
-     #   print(f"Loaded {lines} lines")
-    #    print(f"Total characters found: {total_chars}")
-        print(f"Valid labels loaded: {len(labels)}")
-        
-        # Get image dimensions
-        cell_height, cell_width = grid_size
-        rows, cols = 40, 50
-        
-        expected_height = rows * cell_height
-        expected_width = cols * cell_width
-        if img.shape[:2] != (expected_height, expected_width):
-            raise ValueError(f"Image dimensions must be {expected_width}x{expected_height}")
-        
-        
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
-        label_counts = {}
-        
-        # Iterate through the grid
-        processed_count = 0
+            return {
+                "status": "error",
+                "error": f"Failed to load image {image_path}",
+                "file": str(image_path),
+            }
+
+        labels = read_labels(txt_path)
+        cell_width, cell_height = ETL_IMAGE_SIZES[etl_type]
+        rows = 40
+        cols = 50
+
+        stats = {
+            "processed": 0,
+            "skipped": 0,
+            "empty_boxes": 0,
+            "labels": {},
+            "grid_file": str(image_path),
+        }
+        label_counters = {}
+        current_pos = 0
         for row in range(rows):
             for col in range(cols):
+                if current_pos >= len(labels):
+                    break
+
                 x1 = col * cell_width
                 y1 = row * cell_height
                 x2 = x1 + cell_width
                 y2 = y1 + cell_height
-                
-                # Crop the cell
+
                 cell = img[y1:y2, x1:x2]
-                
-                # Get label for current cell
-                if processed_count < len(labels):
-                    label = labels[processed_count]
-                    
-                    if not label or label == '\x00':
-                        class_dir = os.path.join(output_dir, '_null_')
-                    else:
-                        class_dir = os.path.join(output_dir, f"'{label}'")
-                    
-                    Path(class_dir).mkdir(parents=True, exist_ok=True)
-                    
-                    # Use '_null_' as filename prefix for null characters
-                    # technically you can skip over if the label is null but it helps to keep
-                    # these characters so you know if something went wrong
-                    filename_prefix = '_null_' if not label or label == '\x00' else label
-                    
-                    # Initialize counter for new labels
-                    # TODO - this will overwrite existing files with the same prefix
+                label = labels[current_pos]
 
-                    if filename_prefix not in label_counts:
-                        label_counts[filename_prefix] = 0
-                    
-                    output_path = os.path.join(class_dir, f"'{filename_prefix}'_{label_counts[filename_prefix]:04d}.png")
-                    if not cv2.imwrite(output_path, cell):
-                        raise IOError(f"Failed to save image: {output_path}")
-                    
-                    label_counts[filename_prefix] += 1
-                    processed_count += 1
+                if label == "\x00":
+                    current_pos += 1
+                    stats["empty_boxes"] += 1
+                    continue
+
+                if label not in label_counters:
+                    label_counters[label] = 0
+
+                counter_str = f"{label_counters[label]:05d}"
+
+                label_dir = worker_output / label
+                label_dir.mkdir(exist_ok=True)
+
+                output_filename = f"{label}_{counter_str}.png"
+                output_path = label_dir / output_filename
+
+                if cv2.imwrite(str(output_path), cell):
+                    stats["processed"] += 1
+                    stats["labels"][label] = stats["labels"].get(label, 0) + 1
+                    label_counters[label] += 1
                 else:
-                    break
-        
-        print(f"Successfully processed {processed_count} cells")
-     #   print("Label distribution:", dict(label_counts))
-                
-    except Exception as e:
-        print(f"Error in split_grid_image: {str(e)}")
-        raise
+                    stats["skipped"] += 1
 
-def find_matching_pairs(base_dir):
-    """Find all matching PNG and TXT pairs in the directory."""
-    png_files = glob.glob(os.path.join(base_dir, "**/*.png"), recursive=True)
-    pairs = []
-    
-    for png_file in png_files:
-        txt_file = png_file.rsplit('.', 1)[0] + '.txt'
-        if os.path.exists(txt_file):
-            pairs.append((png_file, txt_file))
-    
-    return pairs
+                current_pos += 1
 
-def process_pair(args):
-    """Process a single image/text pair."""
-    img_path, txt_path, output_dir = args
-    try:
-        print(f"Processing {os.path.basename(img_path)}")
-        split_grid_image(img_path, txt_path, output_dir)
-        return f"Successfully processed {os.path.basename(img_path)}"
+        return {"status": "success", "stats": stats, "label_counts": label_counters}
+
     except Exception as e:
-        return f"Failed to process {os.path.basename(img_path)}: {str(e)}"
+        return {"status": "error", "error": str(e), "file": str(image_path)}
+
 
 def main():
-    base_dir = "/Users/chai/Downloads/ETL 仮名・漢字 dataset"
-    output_dir = os.path.join(base_dir, "classes")
-    
-    # Find all matching pairs
-    pairs = find_matching_pairs(base_dir)
-    print(f"Found {pairs}")
-    if not pairs:
-        print("No matching PNG/TXT pairs found!")
-        return
-    
-    print(f"Found {len(pairs)} pairs to process")
-    
-    process_args = [(png, txt, output_dir) for png, txt in pairs]
-   
-    with Pool(processes=8) as pool:
-        results = pool.map(process_pair, process_args)
-    
+    parser = argparse.ArgumentParser(description="Slice ETL dataset grids into tiles")
+    parser.add_argument("input", help="Base directory containing ETL dataset folders")
+    parser.add_argument(
+        "--workers", type=int, default=16, help="Number of worker processes"
+    )
+    parser.add_argument(
+        "--temp", help="Temporary directory for worker outputs", default="temp_workers"
+    )
+    args = parser.parse_args()
 
-    for result in results:
-        print(result)
+    base_dir = Path(args.input)
+    if not base_dir.exists():
+        logger.error("Input directory not found!")
+        return
+
+    temp_dir = Path(args.temp)
+
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    print("\nAvailable ETL types:", ", ".join(ETL_IMAGE_SIZES.keys()))
+
+    user_input = (
+        input("Enter ETL type to process (or 'all' for all types): ").strip().upper()
+    )
+    start_time = datetime.now()
+    etl_types = (
+        list(ETL_IMAGE_SIZES.keys()) if user_input.lower() == "all" else [user_input]
+    )
+
+    pairs = []
+    for etl_type in etl_types:
+        if etl_type not in ETL_IMAGE_SIZES:
+            logger.warning(f"Unknown ETL type: {etl_type}, skipping...")
+            continue
+
+        etl_dirs = list(base_dir.glob(f"*{etl_type}*"))
+        if not etl_dirs:
+            logger.warning(f"No directories found for {etl_type}")
+            continue
+
+        for etl_dir in etl_dirs:
+            png_files = list(etl_dir.glob("*.png"))
+            logger.info(f"Found {len(png_files)} PNG files in {etl_dir}")
+
+            for png_file in png_files:
+                txt_file = png_file.with_suffix(".txt")
+                if txt_file.exists():
+                    pairs.append((png_file, txt_file))
+
+    duration = datetime.now() - start_time
+
+    if not pairs:
+        logger.error("No PNG/TXT pairs found!")
+        return
+
+    logger.info(
+        f"\nFile pair search took: {duration}\nFound {len(pairs)} PNG/TXT pairs to process"
+    )
+
+    process_args = [
+        (png, txt, temp_dir, i % args.workers) for i, (png, txt) in enumerate(pairs)
+    ]
+
+    logger.info(f"\tProcessing with {args.workers} workers")
+
+    results = []
+    chunk_size = len(process_args) // (
+        args.workers * 4
+    )  # * you can play around with this
+
+    try:
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = list(
+                tqdm(
+                    executor.map(
+                        process_grid, process_args, chunksize=chunk_size
+                    ),  # * map uses a little more memory fyi
+                    total=len(process_args),
+                    desc="Processing grids",
+                )
+            )
+
+            results = [result for result in futures]
+
+    except KeyboardInterrupt:
+        logger.error("Processing interrupted by user")
+        executor.shutdown(wait=False)
+        return
+    except Exception as e:
+        logger.error(f"Error during processing: {e}")
+        executor.shutdown(wait=False)
+        raise
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    error_count = sum(1 for r in results if r["status"] == "error")
+
+    logger.info(f"\nProcessing complete!")
+    logger.info(f"Successfully processed: {success_count} grids")
+    logger.info(f"Errors: {error_count} grids")
+
+    if error_count > 0:
+        logger.error("\nFailed grids:")
+        for result in results:
+            if result["status"] == "error":
+                logger.error(f"  - {result['file']}: {result['error']}")
+
+    log_path = (
+        temp_dir / f"processing_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "total_pairs": len(pairs),
+                "success_count": success_count,
+                "error_count": error_count,
+                "results": results,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+    logger.info("All done! Check the log file for detailed statistics.")
+
 
 if __name__ == "__main__":
     main()
