@@ -443,7 +443,7 @@ class ETL9B_Record(ETLn_Record):  # * works
             ).decode("iso2022_jp")
             return char
         except UnicodeDecodeError:
-            logging.error(f"\nFailed to decode character: {self.record["JIS Kanji Code"]}\n")
+            logging.error(f"\nFailed to decode character: {self.record['JIS Kanji Code']}\n")
             return "__null__"
 
 
@@ -631,12 +631,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--jis201",
-        default="/Users/chai/mojinet/utils/JIS0201.TXT",
+        default="mappings/JIS0201.TXT",
         help="Path to JIS X 0201 mapping file",
     )
     parser.add_argument(
         "--jis208",
-        default="/Users/chai/mojinet/utils/JIS0208.TXT",
+        default="mappings/JIS0201.TXT",
         help="Path to JIS X 0208 mapping file",
     )
     args = parser.parse_args()
