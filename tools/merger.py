@@ -7,10 +7,22 @@ import json
 import os
 import time
 import fcntl
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.panel import Panel
+from rich.text import Text
+from rich import print as rprint
 
-
+console = Console()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def log_info(message, style="bold blue"):
+    console.print(f"ℹ️  {message}", style=style)
+
+def log_error(message):
+    console.print(f"❌ {message}", style="bold red")
 
 
 def chunk_dict(data, chunks):
@@ -160,7 +172,7 @@ def process_character(args):
         )
 
     # ? these dont matter, dont worry if you dont see any stats on success. failures should show though
-    if not dry_run:
+    
         stats_file = os.path.join(final_dir, f"worker_{worker_id}_stats.json")
         try:
             stats_json = json.dumps(stats, ensure_ascii=False, separators=(",", ":"))
@@ -178,7 +190,7 @@ def process_character(args):
         except Exception as e:
             logger.error(f"Error writing stats for worker {worker_id}: {e}")
 
-    return character, grid_info
+    return character, grid_info, stats["input_files"], stats["output_files"]
 
 
 def merge_worker_outputs(
@@ -193,15 +205,13 @@ def merge_worker_outputs(
             f.write("test")
         os.remove(test_file)
     except OSError as e:
-        logger.error(f"Cannot write to final directory {final_dir}: {e}")
+        log_error(f"Cannot write to final directory {final_dir}: {e}")
         raise
 
     if num_workers is None:
         num_workers = min(mp.cpu_count(), 16)
 
-    logger.info(
-        f"Starting {'dry run' if dry_run else 'merge'} with {num_workers} workers"
-    )
+    log_info(f"Starting {'🔍 dry run' if dry_run else '🔄 merge'} with {num_workers} workers")
 
     worker_dirs = [
         d.path
@@ -209,27 +219,24 @@ def merge_worker_outputs(
         if d.name.startswith("worker_") and d.is_dir()
     ]
 
-    logger.info("Building initial index, hold...")
-    start_time = time.time()
+    with console.status("[bold green]Building initial index...") as status:
+        start_time = time.time()
+        symbol_to_grids = fast_directory_scan(worker_dirs)
+        elapsed_time = time.time() - start_time
+        log_info(f"✨ Initial index built in {elapsed_time:.2f} seconds!")
+        log_info(f"Found {len(symbol_to_grids)} unique symbols")
 
-    symbol_to_grids = fast_directory_scan(worker_dirs)
-
-    elapsed_time = time.time() - start_time
-    logger.info(
-        f"✨ Initial index built in {elapsed_time:.2f} seconds! Found {len(symbol_to_grids)} unique symbols"
-    )
-
-    # * Always make sure final_dir exists
     os.makedirs(final_dir, exist_ok=True)
 
-    # * clear
-    if not dry_run and os.path.exists(final_dir):
-        for entry in os.scandir(final_dir):
-            if entry.name.endswith("_stats.json"):
+    if os.path.exists(final_dir):
+        with Progress() as progress:
+            task = progress.add_task("🧹 Cleaning old stats files...", total=len(list(Path(final_dir).glob("worker_*_stats.json"))))
+            for stats_file in Path(final_dir).glob("worker_*_stats.json"):
                 try:
-                    os.remove(entry.path)
-                except OSError as e:
-                    logger.error(f"Error removing old stats file {entry.path}: {e}")
+                    os.remove(stats_file)
+                    progress.advance(task)
+                except Exception as e:
+                    log_error(f"Error removing old stats file {stats_file}: {e}")
 
     char_chunks = chunk_dict(symbol_to_grids, num_workers)
     process_args = [
@@ -238,90 +245,87 @@ def merge_worker_outputs(
         for char, grids in chunk.items()
     ]
 
-    if not dry_run:
-        logger.info("Writing to disk, be patient...")
-    logger.info(
-        f"Processing {len(symbol_to_grids)} characters, {len(process_args)} total entries with {num_workers} workers."
-    )
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+    ) as progress:
+        task = progress.add_task("Processing characters...", total=len(process_args))
+        with mp.Pool(num_workers) as pool:
+            results = []
+            for result in pool.imap_unordered(process_character, process_args):
+                results.append(result)
+                progress.advance(task)
 
-    with mp.Pool(num_workers) as pool:
-        results = list(
-            tqdm(
-                pool.imap_unordered(process_character, process_args),
-                total=len(process_args),
-                desc="Processing characters",
-            )
-        )
-    if not dry_run:
-        logger.info("Finished processing! Gathering stats...")
-
-        final_mapping = {char: grid_info for char, grid_info in results if grid_info}
-
-        total_stats = defaultdict(int)
-
-        for stats_file in os.scandir(final_dir):
-            if not stats_file.name.endswith("_stats.json"):
-                continue
+    console.print("\n[bold green]✅ Processing complete![/]")
+    
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Metric", style="dim")
+    table.add_column("Value", justify="right")
+    final_mapping = {char: grid_info for char, grid_info, _, _ in results if grid_info}    
+    total_stats = defaultdict(int)
+    operations = []
+    
+    with Progress() as progress:
+        stats_files = list(Path(final_dir).glob("worker_*_stats.json"))
+        task = progress.add_task("📊 Gathering stats...", total=len(stats_files))
+        
+        for stats_file in stats_files:
             try:
-                with open(stats_file.path, encoding="utf-8") as f:
+                with open(stats_file, encoding="utf-8") as f:
                     for line in f:
-                        if not line.strip():
-                            continue
-                        try:
-                            stats = json.loads(line)
-                            total_stats["input_files"] += stats["input_files"]
-                            total_stats["output_files"] += stats["output_files"]
-                            total_stats["characters"] += 1
-                        except json.JSONDecodeError as e:
-                            logger.error(
-                                f"Error parsing JSON in {stats_file.path}: {e}"
-                            )
-            except OSError as e:
-                logger.error(f"Error reading stats file {stats_file.path}: {e}")
+                        if line.strip():
+                            try:
+                                stats = json.loads(line)
+                                total_stats["input_files"] += stats["input_files"]
+                                total_stats["output_files"] += stats["output_files"]
+                                if dry_run and "operations" in stats:
+                                    operations.extend(stats["operations"])
+                            except json.JSONDecodeError as e:
+                                log_error(f"Error parsing JSON line in {stats_file}: {e}")
+                                continue
+            except Exception as e:
+                log_error(f"Error reading stats file {stats_file}: {e}")
+            progress.advance(task)
 
-        logger.info("\nProcessing Summary:")
-        logger.info(f"Total characters processed: {total_stats['characters']}")
-        logger.info(f"Total input files: {total_stats['input_files']}")
-        logger.info(f"Total output files: {total_stats['output_files']}")
-    else:
-        final_mapping = {char: grid_info for char, grid_info in results if grid_info}
+    total_stats["characters"] = len(final_mapping)
 
-        logger.info("\nDry Run Summary:")
-        logger.info(f"Total characters to process: {len(final_mapping)}")
-        total_files = sum(
-            sum(grid["file_count"] for grid in char_info.values())
-            for char_info in final_mapping.values()
-        )
-        logger.info(f"Total files to process: {total_files}")
+    table.add_row("Characters Processed", str(total_stats['characters']))
+    input_files = sum(stats[2] for stats in results)
+    output_files = sum(stats[3] for stats in results)
+    table.add_row("Input Files", str(input_files))
+    table.add_row("Output Files", str(output_files))
+    
+    console.print("\n[bold]Processing Summary:[/]")
+    console.print(table)
+
+    if dry_run and operations:
+        console.print("\n[bold]Planned Operations (First 10):[/]")
+        for op in operations[:10]:
+            source = Text(op['source'], style="blue")
+            dest = Text(op['destination'], style="green")
+            console.print(f"📄 {source} ➡️  {dest}")
+        
+        if len(operations) > 10:
+            console.print(f"\n... and {len(operations) - 10} more operations")
 
     return final_mapping
 
-
 if __name__ == "__main__":
-    OUTPUT_DIR = "point to the output of tiles_from_pairs.py, default etl_worker"	 
-    FINAL_DIR = "your choice"
+    OUTPUT_DIR = "/Users/chai/Downloads/ETL 仮名・漢字 dataset/temp_workers"
+    FINAL_DIR = "/Users/chai/Downloads/ETL 仮名・漢字 dataset/single iterator, old merger"
 
-    # * Clear the final directory first to avoid accumulation.
-    #! This will delete all created files in the final directory, be careful!
-    #! It might take a moment! Its > 1 million items
-    if os.path.exists(FINAL_DIR) and False:
-        logger.info(f"Clearing {FINAL_DIR} before run")
-        files = os.listdir(FINAL_DIR)
-        for f in tqdm(files, desc="Clearing directory"):
-            try:
-                os.remove(os.path.join(FINAL_DIR, f))
-            except Exception as e:
-                logger.error(f"Failed to remove {f}: {e}")
-                exit(1)
-        logger.info("Directory cleared")
+    console.print(Panel.fit(
+        f"Label shards in: {OUTPUT_DIR}\nFinal Directory: {FINAL_DIR}",
+        title="Configuration",
+        border_style="blue"
+    ))
 
-    # * Change dry_run to False to commit changes to disk
-    # * Run with dry first to check out worker jsons, and the sample output.
-    # * Dry_run = False will not print stats.
     start_time = time.time()
     mapping = merge_worker_outputs(
-        dry_run=True, output_dir=OUTPUT_DIR, final_dir=FINAL_DIR
+        dry_run=False, output_dir=OUTPUT_DIR, final_dir=FINAL_DIR
     )
     elapsed_time = time.time() - start_time
-    print(f"\n{len(mapping)} unique characters")
-    print(f"Total execution time: {elapsed_time:.2f} seconds")
+    console.print(f"\n[bold green]✨ Processed {len(mapping)} unique characters[/]")
+    console.print(f"[bold]Total execution time:[/] {elapsed_time:.2f} seconds")
