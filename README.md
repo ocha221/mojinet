@@ -8,6 +8,7 @@ Tooling for the etl character database & a deep learning model for Japanese char
 
 The project is meant to streamline the process of working with the ETL Character Database, offering simple, high-performance preprocessing tools and dataset preparation utilities for Japanese character recognition models. Near every task is parallelised with the MapReduce paradigm in mind.
 
+
 ## ✨ Key Features
 
 
@@ -38,6 +39,11 @@ python3 manager.py --help
 ##  Components
 
 ### Dataset Processing Pipeline
+
+
+### manager.py: Unified runner
+
+A helper utility that bridges the subscripts together. You can of course use each script in tools/ independently, but with ```manager.py pipeline``` the aim is to get from unpacking → grid segmentation → consolidation → preparation in about 300 seconds on my M1 macbook with 8 workers, with QoL like handling directory creation and chaining for you, with optionally automating the download of the etl files. For this reason, when running in ```pipeline``` mode, the arguments for every function except ```split``` are streamlined to use as many workers as possible and to extract to hardcoded directories; you'll still be prompted for the final dataset params.
 
 ####  unpack.py: ETL Binary Extraction
 - Parallel processing support via multiprocessing
@@ -111,6 +117,7 @@ All JIS (0201/0208) characters get converted to unicode and then further [normal
 This is because ETL1/6/7 all use half-width katakana for the labels; On ETL6, it maps to full-width katakana(as in, the character ア will respond to an ア in the image grid). However, on ETL7 it maps to hiragana (half-width ア in the text → あ in the image), so ETL6 only requires you normalise after converting to unicode, but ETL7 also needs to be offset to hiragana.
 
 ## Technical Implementation Details
+
 
 The ETL database consists of 11 distinct folders, each containing multiple binary files that store packed image data, labels, and associated metadata. 
 
