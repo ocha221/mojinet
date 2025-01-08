@@ -26,7 +26,7 @@ from tools.unpack import (
 )
 from tools.grid_walk import grid_walk
 from tools.tiles_from_pairs import process_grid, ETL_IMAGE_SIZES
-from tools.fast_merge import merge_worker_outputs
+from tools.merger import merge_worker_outputs
 from tools.dataset_splitter import (
     split_dataset,
     get_processing_options,
