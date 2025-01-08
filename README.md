@@ -14,7 +14,7 @@ The project is meant to streamline the process of working with the ETL Character
   - ETL binary unpacking
   - Grid tiling & dataset exploration
   - Multi-worker dataset merging
-  - Preprocessing: Image Normalization, Resolution Enhancement, Dataset Splitting
+  - Preprocessing: Image Normalization, Resolution Enhancement, Dataset Splitting & basic filtering
 - Dataset validation tools
 - logging
 
