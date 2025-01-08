@@ -60,7 +60,7 @@ def load_jis_map(*filenames, format):
 
 
 class CO59_to_utf8:
-    def __init__(self, euc_co59_file="euc_co59.dat"):
+    def __init__(self, euc_co59_file="mappings/euc_co59.dat"):
         with codecs.open(euc_co59_file, "r", "euc-jp") as f:
             co59t = f.read()
         co59l = co59t.split()
@@ -115,7 +115,7 @@ class ETLn_Record(JISMappingMixin):
     
     def read(self, bs, pos=None):
         if pos:
-            f.bytepos = pos * self.octets_per_record
+            f.bytepos = pos * self.octets_per_record 
 
         r = bs.readlist(self.bitstring)
 
@@ -236,7 +236,7 @@ class ETL2_Record(
                 lambda x: x * 4,
             ),
         }
-        self.co59_to_utf8 = CO59_to_utf8("euc_co59.dat")
+        self.co59_to_utf8 = CO59_to_utf8("mappings/euc_co59.dat")
 
     def get_char(self):
         return self.co59_to_utf8(self.record["CO-59 Code"])
@@ -443,7 +443,7 @@ class ETL9B_Record(ETLn_Record):  # * works
             ).decode("iso2022_jp")
             return char
         except UnicodeDecodeError:
-            logging.error(f"\nFailed to decode character: {self.record['JIS Kanji Code']}\n")
+            logging.error(f"\nFailed to decode character: {self.record["JIS Kanji Code"]}\n")
             return "__null__"
 
 
@@ -471,7 +471,7 @@ def unpack(filename, etln_record):
             record = etln_record.read(f)
             try:
                 char = etln_record.get_char()
-                logging.debug(f"Position {f.pos}: Got character {char}")
+            #    logging.debug(f"Position {f.pos}: Got character {char}")
             except Exception as e:
                 logging.error(f"\nPosition {f.pos}: Failed to decode - {e}\n")
                 char = "__null__"
@@ -623,7 +623,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
+        default=os.cpu_count(),
         help="Number of worker processes (default: single process)",
     )
     parser.add_argument(
@@ -631,12 +631,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--jis201",
-        default="mappings/JIS0201.TXT",
+        default="JIS0201.TXT",
         help="Path to JIS X 0201 mapping file",
     )
     parser.add_argument(
         "--jis208",
-        default="mappings/JIS0201.TXT",
+        default="JIS0208.TXT",
         help="Path to JIS X 0208 mapping file",
     )
     args = parser.parse_args()
