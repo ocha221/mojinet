@@ -1,5 +1,5 @@
 # Mojinet - 文字・ネト 文字認識 
-### ETL Character Database Extraction | Japanese OCR | Kanji Recognition 
+### ETLCDB Extraction | Japanese OCR | Kanji Recognition 
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 
 
@@ -12,7 +12,7 @@ The project is meant to streamline the process of working with the ETL Character
 ## ✨ Key Features
 
 
-- Complete ETLCdb pipeline with parallel processing:
+- Fully featured ETLCDB extractor pipeline with parallel processing:
   - ETL binary unpacking, extraction
   - Grid tiling & dataset exploration
   - Multi-worker dataset merging
@@ -27,12 +27,13 @@ The project is meant to streamline the process of working with the ETL Character
 - [```JIS 0201```](https://www.unicode.org/anon-ftp/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0201.TXT) & [```JIS 0208```](https://www.unicode.org/anon-ftp/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT) mappings (available from Unicode directly)
 - Request access to the ETLCDB on the [site](http://etlcdb.db.aist.go.jp/?lang=ja)
 - Download ```euc_co59.dat``` from the same site
-- optionally edit manager.py to include the download urls from the AIST website to automate download/unzip.
+- optionally edit manager.py to include the download urls from the AIST website to automate download/unzip. (recommended)
 ```
 git clone https://github.com/ocha221/mojinet.git
 cd mojinet/
 pip3 install -r requirements.txt
-python3 manager.py --help
+python3 manager.py --help # display all commands
+python3 manager.py pipeline # First run will take a second or two to initiate everything. Then it will run through the entire processing pipeline
 ```
 
 <img src="https://github.com/user-attachments/assets/12b61d38-550a-4958-b329-2ac25c75186c" width="45%"></img> <img src="https://github.com/user-attachments/assets/98decf4e-f42b-4861-bb8c-c932a381e0a2" width="45%"></img> <img src="https://github.com/user-attachments/assets/93ac2dcc-4d71-43ce-93de-d7bdb8267f15" width="45%"></img> <img src="https://github.com/user-attachments/assets/a1e611db-f7cd-4b6c-b57d-7cde46097b28" width="45%"></img> 
