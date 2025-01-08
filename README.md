@@ -9,10 +9,10 @@ The project is meant to streamline the process of working with the ETL Character
 
 
 - Complete ETL dataset preprocessing pipeline with parallel processing:
--- Unpacking
--- Tiling & dataset browsing
--- Merging
--- Dataset prep: Image Normalisation, Upscaling, splitting
+  - Unpacking
+  - Tiling & dataset browsing
+  - Merging
+  - Dataset prep: Image Normalisation, Upscaling, splitting
 - Robust character encoding handling (JIS → Unicode conversion & Normalisation)
 - Visual debugging tools for dataset inspection
 - Logging
