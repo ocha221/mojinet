@@ -43,7 +43,8 @@ python3 manager.py --help
 
 ### manager.py: Unified runner
 
-A helper utility that bridges the subscripts together. You can of course use each script in tools/ independently, but with ```manager.py pipeline``` the aim is to get from unpacking → grid segmentation → consolidation → preparation in about 300 seconds on my M1 macbook with 8 workers, with QoL like handling directory creation and chaining for you, with optionally automating the download of the etl files. For this reason, when running in ```pipeline``` mode, the arguments for every function except ```split``` are streamlined to use as many workers as possible and to extract to hardcoded directories; you'll still be prompted for the final dataset params.
+A helper utility that bridges the subscripts together. You can of course use each script in tools/ independently, but with ```manager.py pipeline``` the aim is to get from unpacking → grid segmentation → consolidation → preparation in about 300 seconds on my M1 macbook with 8 workers, with QoL like handling directory creation and chaining for you, and optionally automating the download of the etl files. For this reason, when running in ```pipeline``` mode, the arguments for every function except ```split``` are streamlined to use as many workers as possible and to extract to hardcoded directories; you'll still be prompted for the final dataset params. Pass the --cjk-only flag to ```pipeline``` to filter out latin characters from your final dataset.
+
 
 ####  unpack.py: ETL Binary Extraction
 - Parallel processing support via multiprocessing
