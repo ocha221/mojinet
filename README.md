@@ -1,20 +1,21 @@
 # Mojinet - 文字・ネト 文字認識 
-### ETL Character Database
+### ETL Character Database Extraction | Japanese OCR | Kanji Recognition 
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 
 
 Tooling for the etl character database & a deep learning model for Japanese character recognition using the [ConvNeXt](https://github.com/facebookresearch/ConvNeXt) architecture. Built through transfer learning on the [ETL文字データベース](http://etlcdb.db.aist.go.jp/?lang=ja).
 ## 概要 Overview 
 
-The project is meant to streamline the process of working with the ETL Character Database, offering high-performance preprocessing tools and dataset preparation utilities for Japanese character recognition models. Near every task is parallelised with the MapReduce paradigm in mind.
+The project is meant to streamline the process of working with the ETL Character Database, offering simple, high-performance preprocessing tools and dataset preparation utilities for Japanese character recognition models. Near every task is parallelised with the MapReduce paradigm in mind.
 
 ## ✨ Key Features
 
 
-- Complete ETL database preprocessing pipeline with parallel processing:
-  - ETL binary unpacking
+- Complete ETLCdb pipeline with parallel processing:
+  - ETL binary unpacking, extraction
   - Grid tiling & dataset exploration
   - Multi-worker dataset merging
-  - Preprocessing: Image Normalization, Resolution Enhancement, Dataset Splitting & basic filtering
+  - Preprocessing: Image Normalization, Upscaling, Dataset Splitting & basic filtering
 - Dataset validation tools
 - logging
 
@@ -22,7 +23,7 @@ The project is meant to streamline the process of working with the ETL Character
 
 ### Prerequisites
 - Python 3.13
-- ```JIS 0201 & 0208``` mappings (available from Unicode directly)
+- [```JIS 0201```](https://www.unicode.org/anon-ftp/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0201.TXT) & [```JIS 0208```](https://www.unicode.org/anon-ftp/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT) mappings (available from Unicode directly)
 - Request access to the ETLCDB on the [site](http://etlcdb.db.aist.go.jp/?lang=ja)
 - Download ```euc_co59.dat``` from the same site
 - optionally edit manager.py to include the download urls from the AIST website to automate download/unzip.
@@ -32,9 +33,8 @@ cd mojinet/
 pip3 install -r requirements.txt
 python3 manager.py --help
 ```
-<img width="569" alt="" src="https://github.com/user-attachments/assets/12b61d38-550a-4958-b329-2ac25c75186c" />
-<img width="565" alt="M" src="https://github.com/user-attachments/assets/a1e611db-f7cd-4b6c-b57d-7cde46097b28" />
 
+<img src="https://github.com/user-attachments/assets/12b61d38-550a-4958-b329-2ac25c75186c" width="45%"></img> <img src="https://github.com/user-attachments/assets/98decf4e-f42b-4861-bb8c-c932a381e0a2" width="45%"></img> <img src="https://github.com/user-attachments/assets/93ac2dcc-4d71-43ce-93de-d7bdb8267f15" width="45%"></img> <img src="https://github.com/user-attachments/assets/a1e611db-f7cd-4b6c-b57d-7cde46097b28" width="45%"></img> 
 ##  Components
 
 ### Dataset Processing Pipeline
