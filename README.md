@@ -2,7 +2,7 @@
 ### ETL Character Database
 
 
-Tooling & a deep learning model for Japanese character recognition using the [ConvNeXt](https://github.com/facebookresearch/ConvNeXt) architecture. Built through transfer learning on the [ETL文字データベース](http://etlcdb.db.aist.go.jp/?lang=ja).
+Tooling for the etl character database & a deep learning model for Japanese character recognition using the [ConvNeXt](https://github.com/facebookresearch/ConvNeXt) architecture. Built through transfer learning on the [ETL文字データベース](http://etlcdb.db.aist.go.jp/?lang=ja).
 ## 概要 Overview 
 
 The project is meant to streamline the process of working with the ETL Character Database, offering high-performance preprocessing tools and dataset preparation utilities for Japanese character recognition models. Near every task is parallelised with the MapReduce paradigm in mind.
