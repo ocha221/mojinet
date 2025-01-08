@@ -1,0 +1,10 @@
+bitstring
+pillow
+numpy
+matplotlib
+rich
+typer
+tqdm
+requests
+opencv-python
+jaconv
