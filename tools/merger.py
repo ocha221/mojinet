@@ -313,8 +313,8 @@ def merge_worker_outputs(
     return final_mapping
 
 if __name__ == "__main__":
-    OUTPUT_DIR = "/Users/chai/Downloads/ETL 仮名・漢字 dataset/temp_workers"
-    FINAL_DIR = "/Users/chai/Downloads/ETL 仮名・漢字 dataset/single iterator, old merger"
+    OUTPUT_DIR = the output of tiles_from_pairs
+    FINAL_DIR = where you want your unified dataset
 
     console.print(Panel.fit(
         f"Label shards in: {OUTPUT_DIR}\nFinal Directory: {FINAL_DIR}",
