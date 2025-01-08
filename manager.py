@@ -24,6 +24,7 @@ from tools.unpack import (
     load_jis_map,
     JISMappingMixin,
 )
+from tools.grid_walk import grid_walk
 from tools.tiles_from_pairs import process_grid, ETL_IMAGE_SIZES
 from tools.fast_merge import merge_worker_outputs
 from tools.dataset_splitter import (
@@ -470,6 +471,34 @@ def pipeline(
         console.print(
             Panel.fit(f"[red]Pipeline failed![/red]\n{str(e)}", border_style="red")
         )
+        raise typer.Exit(1)
+        
+@app.command()
+def debug_grid(
+    image_path: Path = typer.Argument(..., help="Path to grid image file"),
+    txt_path: Path = typer.Argument(..., help="Path to corresponding label text file"),
+):
+
+    if not image_path.exists():
+        console.print(f"[red]Image file {image_path} does not exist![/red]")
+        raise typer.Exit(1)
+
+    if not txt_path.exists():
+        console.print(f"[red]Label file {txt_path} does not exist![/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel.fit(
+            f"[cyan]Grid Debug Viewer[/cyan]\nImage: {image_path}\nLabels: {txt_path}",
+            title="Grid Debugger",
+            border_style="blue",
+        )
+    )
+
+    try:
+        grid_walk(image_path, txt_path)
+    except Exception as e:
+        console.print(f"[red]Error during grid debugging: {str(e)}[/red]")
         raise typer.Exit(1)
 
 
