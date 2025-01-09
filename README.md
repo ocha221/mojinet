@@ -37,6 +37,13 @@ python3 manager.py pipeline # First run will take a second or two to initiate ev
 ```
 
 <img src="https://github.com/user-attachments/assets/12b61d38-550a-4958-b329-2ac25c75186c" width="45%"></img> <img src="https://github.com/user-attachments/assets/98decf4e-f42b-4861-bb8c-c932a381e0a2" width="45%"></img> <img src="https://github.com/user-attachments/assets/93ac2dcc-4d71-43ce-93de-d7bdb8267f15" width="45%"></img> <img src="https://github.com/user-attachments/assets/a1e611db-f7cd-4b6c-b57d-7cde46097b28" width="45%"></img> 
+
+##### Todo
+
+a) add Otsu's/adaptive thresholding for binalisation instead of just /255 (will push soon)
+
+b) add jupyter notebook
+
 ##  Components
 
 ### Dataset Processing Pipeline
