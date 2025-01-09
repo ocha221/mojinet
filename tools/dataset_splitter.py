@@ -334,7 +334,7 @@ def split_dataset(source_dir, output_dir, subset_percentage, processing_options)
                   for char_dir in characters]
     
     
-    with Pool() as pool:
+    with Pool(processes=os.cpu_count()) as pool:
         list(tqdm(
             pool.imap(process_character, worker_args),
             total=len(characters),
