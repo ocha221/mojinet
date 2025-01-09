@@ -112,34 +112,21 @@ def grid_walk(image_path, txt_path, is_solo=False, label=None):
         row = current_pos // cols
         col = current_pos % cols
         
+        
         x1 = col * cell_width
         y1 = row * cell_height
         x2 = x1 + cell_width
         y2 = y1 + cell_height
         
         cell = img[y1:y2, x1:x2]
-        cell_gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
         
-        plt.subplot(441, aspect='equal')
-        plt.imshow(cell)
-        plt.title('Raw Image', fontsize=12)
         
-        plt.subplot(442, aspect='equal')
-        normalized = cell_gray / 255.0
-        plt.imshow(normalized, cmap='gray')
-        plt.title('Normalized', fontsize=12)
+        plt.subplot(121)
+        plt.imshow(cell, cmap='gray')
+        plt.title(f'Cell Image (Row: {row}, Col: {col})')
         
-        plt.subplot(443, aspect='equal')
-        _, otsu = cv2.threshold(cell_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        plt.imshow(otsu, cmap='gray')
-        plt.title("Otsu's Threshold", fontsize=12)
         
-        plt.subplot(444, aspect='equal')
-        inverted_otsu = cv2.bitwise_not(otsu)
-        plt.imshow(inverted_otsu, cmap='gray')
-        plt.title('Inverted Otsu', fontsize=12)
-        
-        plt.subplot(445)
+        plt.subplot(122)
         plt.axis('off')
         current_label = labels[current_pos]
         label_info = (
@@ -155,13 +142,22 @@ def grid_walk(image_path, txt_path, is_solo=False, label=None):
         context_chars = labels[start:end]
         context = ' '.join(f"[{i+start}:'{c}']" for i, c in enumerate(context_chars))
         
-        plt.text(0.1, 0.9, label_info + context, fontsize=12, 
+        plt.text(0.1, 0.9, label_info + context, fontsize=10, 
                 verticalalignment='top', wrap=True)
         
         plt.suptitle(f"Grid Debug Viewer - {Path(image_path).name}\n"
-                    f"Use Left/Right arrows to navigate - Position {current_pos}/{len(labels)-1}",
-                    fontsize=14)
-       
+                    f"Use Left/Right arrows to navigate - Position {current_pos}/{len(labels)-1}")
+        plt.tight_layout()
+        plt.draw()
+    
+    
+    fig = plt.figure(figsize=(15, 8))
+    fig.canvas.mpl_connect('key_press_event', on_key)
+    
+    
+    update_display()
+    plt.show()
+
 
 def main():
     parser = argparse.ArgumentParser(description="Walk through the grid (helps find irregularities between grid/labels")
