@@ -35,7 +35,7 @@ from tools.dataset_splitter import (
 )
 
 ETL_URLS = [
-    <links here>
+  <links>
 ]
 
 app = typer.Typer()
@@ -43,7 +43,6 @@ console = Console()
 
 
 def validate_paths():
-    """Validate required paths and files exist"""
     script_dir = Path(__file__).parent
 
     required_paths = {
@@ -96,7 +95,6 @@ def download(
     output_dir: Path = typer.Argument(..., help="Directory to store downloaded files"),
     workers: int = typer.Option(4, help="Number of concurrent downloads"),
 ):
-
     console.print(
         Panel.fit(
             f"[cyan]ETL Download[/cyan]\nOutput: {output_dir}\nWorkers: {workers}",
@@ -348,7 +346,6 @@ def split(
         False, help="Keep only CJK characters in the final dataset"
     ),
 ):
-    """Split final dataset into train/val/test sets"""
     console.print(
         Panel.fit(
             f"[cyan]Dataset Splitting[/cyan]\nInput: {final_dir}",
@@ -365,10 +362,12 @@ def split(
         raise typer.Exit(1)
 
     processing_options = get_processing_options()
+    processing_options['cjk_only'] = cjk_only
+   
     subset_percentage = get_user_percentage()
     output_dir = (
         final_dir.parent
-        / f"dataset_{int(subset_percentage*100)}percent_{'filtered' if cjk_only else 'whole'}"
+        / f"dataset_{int(subset_percentage*100)}percent_{'filtered' if cjk_only else 'whole'}_{'binarized' if processing_options['binarize'] else 'raw'}_{'inverted' if processing_options['invert'] else 'normal'}"
     )
 
     if not confirm_choices(
@@ -386,9 +385,6 @@ def split(
             console.print("\n[yellow]Operation cancelled by user[/yellow]")
             raise typer.Exit()
 
-    if not Confirm.ask("Start splitting dataset?"):
-        raise typer.Exit()
-
     split_dataset(final_dir, output_dir, subset_percentage, processing_options)
 
     console.print("[green]Dataset splitting complete![/green]")
@@ -404,6 +400,7 @@ def pipeline(
         False, help="Keep only CJK characters in the final dataset"
     ),
 ):
+  
     start_time = time.time()
 
     dirs = {
@@ -472,7 +469,8 @@ def pipeline(
             Panel.fit(f"[red]Pipeline failed![/red]\n{str(e)}", border_style="red")
         )
         raise typer.Exit(1)
-        
+
+
 @app.command()
 def debug_grid(
     image_path: Path = typer.Argument(..., help="Path to grid image file"),
