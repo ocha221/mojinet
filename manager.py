@@ -93,7 +93,7 @@ def download_file(url, output_dir: Path, progress_bar=None):
 @app.command()
 def download(
     output_dir: Path = typer.Argument(..., help="Directory to store downloaded files"),
-    workers: int = typer.Option(4, help="Number of concurrent downloads"),
+    workers: int = typer.Option(os.cpu_count(), help="Number of concurrent downloads"),
 ):
     console.print(
         Panel.fit(
@@ -305,7 +305,7 @@ def merge(
     temp_dir: Path = typer.Argument(
         ..., help="Directory containing processed grid chunks"
     ),
-    workers: int = typer.Option(8, help="Number of worker processes"),
+    workers: int = typer.Option(os.cpu_count(), help="Number of worker processes"),
 ):
 
     console.print(
@@ -395,7 +395,7 @@ def pipeline(
     base_dir: Path = typer.Option(
         Path.cwd() / "etl_dataset", help="Base directory for all pipeline outputs"
     ),
-    workers: int = typer.Option(8, help="Number of worker processes"),
+    workers: int = typer.Option(os.cpu_count(), help="Number of worker processes"),
     cjk_only: bool = typer.Option(
         False, help="Keep only CJK characters in the final dataset"
     ),
