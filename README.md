@@ -16,7 +16,7 @@ The project is meant to streamline the process of working with the ETL Character
   - ETL binary unpacking, extraction
   - Grid tiling & dataset exploration
   - Multi-worker dataset merging
-  - Preprocessing: Image Normalization, Upscaling, Dataset Splitting & basic filtering
+  - Preprocessing: Image Binarisation, Upscaling, Dataset Splitting & basic filtering
 - Dataset validation tools
 - logging
 
@@ -40,9 +40,7 @@ python3 manager.py pipeline # First run will take a second or two to initiate ev
 
 ##### Todo
 
-a) add Otsu's/adaptive thresholding for binalisation instead of just /255 (will push soon)
-
-b) add jupyter notebook
+a) add jupyter notebook
 
 ##  Components
 
@@ -106,7 +104,7 @@ final_dir/
 - Image processing:
   - Multiple upscaling methods (Lanczos/Bicubic/Bilinear)
   - Configurable target sizes (224x224, 384x384)
-  - Optional image normalization
+  - Optional image binarisation (Otsu's method and inversion)
 - Character normalization (full-width → standard)
 - Non-CJK filtering
 - Fast!
@@ -117,7 +115,7 @@ final_dir/
 - Context visualization (previous/next 5 characters)
 - Label verification
 - Hex/UTF-8 label inspection
-<img width="1612" alt="grid_walk" src="https://github.com/user-attachments/assets/b7ce83ec-9453-4ec1-ba09-e829464f14c3" />
+
 
 
 All JIS (0201/0208) characters get converted to unicode and then further [normalised in the case of half or full width](https://www.unicode.org/charts/PDF/UFF00.pdf) depending on the file being processed. 
