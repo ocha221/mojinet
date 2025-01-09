@@ -89,7 +89,17 @@ def get_processing_options():
             console.print("[red]Invalid choice. Please select 1, 2, or 3.[/red]")
     
     options['normalize'] = Confirm.ask(
-        "[yellow]Do you want to normalize images?[/yellow]",
+        "[yellow]Do you want to normalize images? (this will divide by 255)[/yellow]",
+        default=False
+    )
+    
+    options['binarize'] = Confirm.ask(
+        "[yellow]Do you want to binarize images using Otsu's method?[/yellow]",
+        default=False
+    )
+    
+    options['invert'] = Confirm.ask(
+        "[yellow]Do you want to invert the images?[/yellow]",
         default=False
     )
     
@@ -107,9 +117,23 @@ def confirm_choices(subset_percentage, source_dir, output_path, processing_optio
         console.print("• Image normalization: [cyan]Enabled[/cyan]")
     if processing_options['cjk_only']:
         console.print("• CJK characters only: [cyan]Enabled[/cyan]")
-        
-    return Confirm.ask("\n[yellow]Proceed with these settings?[/yellow]", default=True)
+    if processing_options['binarize']:
+        console.print("• Binarization (Otsu): [cyan]Enabled[/cyan]")
+    if processing_options['invert']:
+        console.print("• Image inversion: [cyan]Enabled[/cyan]")
+    
+    source_path = Path(source_dir)
+    char_dirs = [d for d in source_path.iterdir() if d.is_dir()]
+    
+    if char_dirs:
+            random_char = random.choice(char_dirs)
+            cmd = f"python tools/grid_walk.py {random_char}/0.png {random_char.name} --solo --label {random_char.name}"
+            console.print(f"\n[cyan]Demonstrating random character with:[/cyan] {cmd}")
+            os.system(cmd)
 
+    proceed = Confirm.ask("\n[yellow]Proceed with these settings?[/yellow]", default=True)
+            
+    return proceed
 
 def create_directory_structure(base_dir):
     dirs = {
@@ -137,9 +161,9 @@ def rename_files_in_dir(dir_path):
             label_file.rename(new_label_path)
 
 def process_image(img_path, options):
-    if not options['upscale'] and not options['normalize']:
-        return None  
-        
+    if not any([options['upscale'], options['normalize'], 
+                options['binarize'], options['invert']]):
+        return None
     
     img = cv2.imread(str(img_path))
     
@@ -149,7 +173,15 @@ def process_image(img_path, options):
     
     if options['normalize']:
         img = img.astype('float32') / 255.0
-        img = (img * 255).astype('uint8') 
+        img = (img * 255).astype('uint8')
+    
+    if options['binarize']:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    
+    if options['invert']:
+        img = cv2.bitwise_not(img)
         
     return img
 
