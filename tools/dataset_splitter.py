@@ -201,6 +201,8 @@ def copy_file(src, dst, options=None):
             print("Something went wrong with copying")
 
 def normalize_char(char):
+    if char == 'ィ':
+        return 'ヰ'
     return unicodedata.normalize('NFKC', char)
 
 def is_fullwidth_latin(char):
@@ -219,13 +221,14 @@ def process_character(args):
     
     
     char = char_dir.name if char_dir.name else ''
-   
+
     if processing_options.get('cjk_only', False) and not is_cjk(char):
         return
 
     normalized_name = normalize_char(char)
     
     if not is_fullwidth_latin(char) and normalized_name == char:
+       
         return process_character_normal(args)
         
     parent_dir = char_dir.parent
@@ -233,29 +236,34 @@ def process_character(args):
         d for d in parent_dir.iterdir() 
         if d.is_dir() and normalize_char(d.name) == normalized_name
     ]
-    
 
     all_images = []
+
+    
+    if not matching_dirs:
+        print(f"No matching directories found for {char_dir.name}")
+        return
+    
     for dir in matching_dirs:
         all_images.extend(list(dir.glob("*.png")))
     
+    if not all_images:
+        print(f"No images found for {char_dir.name}")
+        return
 
-    min_samples = math.ceil(3 / subset_percentage)
-    total_subset = min(
-        len(all_images), 
-        max(min_samples, math.ceil(len(all_images) * subset_percentage))
-    )
-
+    total_subset = math.ceil(len(all_images) * subset_percentage)
     if len(all_images) < total_subset:
-        print(f"Skipping {char_dir.name} - not enough samples")
+        print(f"Skipping {char_dir.name} - not enough samples ({len(all_images)} < {total_subset})")
         return
         
     selected_images = random.sample(all_images, total_subset)
-    
-    #* at least 1 sample in each split
-    train_size = max(1, math.ceil(total_subset * 0.8))
-    val_size = max(1, math.ceil(total_subset * 0.1)) 
-    test_size = max(1, total_subset - train_size - val_size)
+
+    if total_subset < 3:
+        train_size = val_size = test_size = 1
+    else:
+        val_size = max(1, math.ceil(total_subset * 0.1))
+        test_size = max(1, math.ceil(total_subset * 0.1))
+        train_size = max(1, total_subset - val_size - test_size)
     
     splits = {
         'train': selected_images[:train_size],
@@ -265,6 +273,8 @@ def process_character(args):
     
     for split_name, images in splits.items():
         if not images:
+            print(f"No images for {split_name} split in {char_dir.name}")  
+
             continue
             
         dest_path = dirs[split_name]['images'] / normalized_name
@@ -273,49 +283,45 @@ def process_character(args):
         for i, img_path in enumerate(images):
             dst_path = dest_path / f"{i}.png"
             copy_file(str(img_path), str(dst_path), processing_options)
-            
-           # label_path = dirs[split_name]['labels'] / f"{i}.txt"
-           # with open(label_path, 'w') as f:
-           #     f.write(normalized_name)
 
 def process_character_normal(args):
-    """Original process_character implementation for non-fullwidth characters"""
+    """this processes non fullwidth"""
     char_dir, dirs, subset_percentage, processing_options = args
+    
+        
     images = list(char_dir.glob("*.png"))
     
+  
+    total_subset = max(3, math.ceil(len(images) * subset_percentage))
+    selected_images = random.sample(images, min(len(images), total_subset))
+    if len(selected_images) < 3: # not sure how this happened to me but if theres not enough images we'll duplicate
+        train_size = val_size = test_size = 1
+        selected_images = selected_images * 3
     
-    total_subset = math.ceil(len(images) * subset_percentage)
-    selected_images = random.sample(images, total_subset)
-    
-    train_size = math.ceil(total_subset * 0.8)
-    val_size = math.ceil(total_subset * 0.1)
-    
-    train_images = selected_images[:train_size]
-    val_images = selected_images[train_size:train_size + val_size]
-    test_images = selected_images[train_size + val_size:]
-    
+    if total_subset < 3:
+        train_size = val_size = test_size = 1
+    else:
+        val_size = max(1, math.floor(total_subset * 0.1))
+        test_size = max(1, math.floor(total_subset * 0.1))
+        train_size = total_subset - val_size - test_size
+       
     splits = {
-        'train': train_images,
-        'val': val_images,
-        'test': test_images
+        'train': selected_images[:train_size],
+        'val': selected_images[train_size:train_size + val_size],
+        'test': selected_images[train_size + val_size:]
     }
     
     for split_name, images in splits.items():
         if not images:
+            print(f"No images for {split_name} split in {char_dir.name}")  
             continue
             
         dest_path = dirs[split_name]['images'] / char_dir.name
         dest_path.mkdir(exist_ok=True)
-        
+            
         for i, img_path in enumerate(images):
-
             dst_path = dest_path / f"{i}.png"
             copy_file(str(img_path), str(dst_path), processing_options)
-            
-
-            """label_path = dirs[split_name]['labels'] / f"{i}.txt"
-            with open(label_path, 'w') as f:
-                f.write(char_dir.name)"""
 
 def split_dataset(source_dir, output_dir, subset_percentage, processing_options):
     source_dir = Path(source_dir)
