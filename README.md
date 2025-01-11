@@ -3,7 +3,7 @@
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 
 
-Tooling for the etl character database & a deep learning model for Japanese character recognition using the [ConvNeXt](https://github.com/facebookresearch/ConvNeXt) architecture. Built through transfer learning on the [ETL文字データベース](http://etlcdb.db.aist.go.jp/?lang=ja).
+Tooling for the etl character database [ETL文字データベース](http://etlcdb.db.aist.go.jp/?lang=ja).
 ## 概要 Overview 
 
 The project is meant to streamline the process of working with the ETL Character Database, offering simple, high-performance preprocessing tools and dataset preparation utilities for Japanese character recognition models. Near every task is parallelised with the MapReduce paradigm in mind.
@@ -37,11 +37,6 @@ python3 manager.py pipeline # First run will take a second or two to initiate ev
 ```
 
 <img src="https://github.com/user-attachments/assets/12b61d38-550a-4958-b329-2ac25c75186c" width="45%"></img> <img src="https://github.com/user-attachments/assets/98decf4e-f42b-4861-bb8c-c932a381e0a2" width="45%"></img> <img src="https://github.com/user-attachments/assets/93ac2dcc-4d71-43ce-93de-d7bdb8267f15" width="45%"></img> <img src="https://github.com/user-attachments/assets/a1e611db-f7cd-4b6c-b57d-7cde46097b28" width="45%"> </img><img width="1712" alt="" src="https://github.com/user-attachments/assets/1f4c55ea-f513-4ad8-9c28-09ff3e12eafc" />
-
-
-##### Todo
-
-a) add jupyter notebook
 
 ##  Components
 
